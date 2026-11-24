@@ -1,0 +1,141 @@
+# Builds the installers on Windows, macOS and Linux.
+#
+# Two ways to release (the version comes from "version" in package.json):
+# - From the website or a phone: Actions tab, "Release", "Run workflow" on main, tick
+#   "Make a draft release". The workflow tags the commit v<version> and creates a draft
+#   release with the installers attached. Review it and click Publish.
+# - From a terminal: push a version tag (git tag v0.2.0 && git push origin v0.2.0). The tag
+#   must match package.json. If a release for that tag already exists (for example one made
+#   on the website), the installers are added to it; otherwise a draft is created.
+# "Run workflow" without the box ticked, and any pull request that changes the packaging
+# setup, only build the installers, so a broken build shows up before a release.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'electron-builder.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'build/**'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Make a draft release (tags this commit v<version from package.json>)
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+
+      - name: Check that the tag matches the version in package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          have="$(node -p "require('./package.json').version")"
+          if [ "$want" != "$have" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $have. Bump the version first, then tag."
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Build the installers
+        run: npx electron-builder --publish never
+        env:
+          # no code-signing certificate yet: build unsigned instead of looking for one
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ runner.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: package.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+
+      - name: Create a draft release with the installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/${{ github.event.repository.default_branch }}" ]; then
+              echo "::error::Run the release from the ${{ github.event.repository.default_branch }} branch."
+              exit 1
+            fi
+            # Tag this commit. (A tag made with the workflow's own token does not start this workflow again.)
+            if gh api "repos/$GH_REPO/git/ref/tags/$tag" > /dev/null 2>&1; then
+              echo "::error::Tag $tag already exists. Bump the version in package.json for a new release."
+              exit 1
+            fi
+            gh api "repos/$GH_REPO/git/refs" --method POST -f ref="refs/tags/$tag" -f sha="$GITHUB_SHA" > /dev/null
+          fi
+
+          # A release for this tag already exists (made on the website): add the installers to it
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release upload "$tag" installers/* --clobber
+            echo "Added the installers to the existing release $tag."
+            exit 0
+          fi
+
+          cat > notes.md <<EOF
+          ## Download
+
+          | Computer | File |
+          |---|---|
+          | Windows | \`Linkage-Setup-${version}.exe\` (installer) or \`Linkage-${version}-portable.exe\` (no install) |
+          | Mac with Apple silicon (M1 or later) | \`Linkage-${version}-arm64.dmg\` |
+          | Mac with an Intel processor | \`Linkage-${version}-x64.dmg\` |
+          | Linux | \`Linkage-${version}.AppImage\` or \`linkage_${version}_amd64.deb\` |
+
+          These builds are not code-signed yet:
+          - **Windows** shows "Windows protected your PC": click *More info*, then *Run anyway*.
+          - **macOS** blocks the first launch: right-click the app and choose *Open*. If it says the app is damaged, run \`xattr -cr /Applications/Linkage.app\` in Terminal.
+
+          Linkage was written entirely by AI; only the idea came from its author. See the README.
+
+          EOF
+          prerelease=""
+          case "$tag" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$tag" installers/* \
+            --draft $prerelease \
+            --title "Linkage ${version}" \
+            --notes-file notes.md \
+            --generate-notes
