@@ -87,7 +87,13 @@ await page.waitForSelector('.sheet');
 ok((await page.$$('.sheet')).length >= 2, 'cheat sheet works');
 await page.screenshot({ path: join(root, 'smoke/ui-cheatsheet.png'), fullPage: true });
 
-ok(await page.evaluate(() => document.fonts.check('700 20px "Barlow Condensed"')), 'bundled fonts load offline');
+const tb = await page.textContent('.titleblock');
+ok(/Robot\s*robot/.test(tb) && /Driver station controls/.test(tb), 'cheat sheet has a title block naming the project');
+const fonts = await page.evaluate(async () => {
+  const faces = [...(await document.fonts.load('600 20px "IBM Plex Sans Condensed"')), ...(await document.fonts.load('500 14px "IBM Plex Mono"'))];
+  return faces.filter((f) => f.status === 'loaded').map((f) => f.family);
+});
+ok(fonts.some((f) => /Plex Sans Condensed/.test(f)) && fonts.some((f) => /Plex Mono/.test(f)), `bundled fonts load offline (${fonts.join(', ')})`);
 ok(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 await app.close();
 console.log(failed ? `${failed} check(s) failed` : 'all checks passed');

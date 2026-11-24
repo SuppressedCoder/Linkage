@@ -277,7 +277,17 @@ function viewCheat() {
       ${s.controller ? padSvg(s.controller, marksFor(s.controller, false), null) : ''}
       <div class="scroll"><table><thead><tr><th>Input</th>${s.modes.map((m) => `<th>${esc(m)}</th>`).join('')}</tr></thead>
       <tbody>${s.rows.map((r) => `<tr><td class="inp">${esc(r.label)}</td>${r.cells.map((c) => `<td>${cell(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-    </section>`).join('') || '<p class="muted">No bindings yet.</p>'}</div>`;
+    </section>`).join('') || '<p class="muted">No bindings yet.</p>'}</div>
+    ${sheets.length ? titleBlock() : ''}`;
+}
+
+/** The drawing's title block, under the cheat sheet on screen and in print. */
+function titleBlock() {
+  const robot = ui.project?.name || 'Robot';
+  const date = new Date().toISOString().slice(0, 10);
+  const ctrls = cfg.controllers.map((c) => `${c.name} ${c.port}`).join(' · ');
+  return `<footer class="titleblock" aria-label="Title block">
+    <div>Robot<b>${esc(robot)}</b></div><div>Drawing<b>Driver station controls</b></div><div>Ports<b>${esc(ctrls)}</b></div><div>Date<b>${esc(date)}</b></div></footer>`;
 }
 
 function viewShare() {

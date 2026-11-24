@@ -2,7 +2,7 @@
 // The page is the same static app as the web version, served from the app folder over the
 // app:// scheme. It runs sandboxed with context isolation; the only way it reaches the disk is
 // the small API in preload.cjs, and every handler here checks what it is given.
-import { app, BrowserWindow, Menu, dialog, ipcMain, net, protocol, shell } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, net, protocol, shell } from 'electron';
 import { readFile, writeFile, readdir, stat, mkdir, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, relative, resolve, sep, dirname } from 'node:path';
@@ -169,7 +169,7 @@ function createWindow() {
     minWidth: 720,
     minHeight: 500,
     title: 'Linkage',
-    backgroundColor: '#121418',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0e2744' : '#f4f1e8',
     webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
   });
   // Links open in the browser, never inside the app.

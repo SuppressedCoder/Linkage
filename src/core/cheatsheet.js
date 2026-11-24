@@ -84,11 +84,14 @@ export function cheatHtml(cfg, robotName = 'Robot') {
   const sheets = cheatSheet(cfg).filter((s) => s.rows.length);
   const cell = (c) => (c.length ? c.map((e) => `<div><b>${esc(e.verb)}</b> ${esc(e.action)}${e.when ? ` <i>${esc(e.when)}</i>` : ''}</div>`).join('') : '<span class="none">-</span>');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(robotName)} controls</title>
-<style>body{font:13px/1.4 system-ui,sans-serif;margin:24px;color:#111}h1{font-size:22px;margin:0 0 12px}h2{font-size:16px;margin:18px 0 6px}
-table{border-collapse:collapse;width:100%;page-break-inside:avoid}th,td{border:1px solid #999;padding:5px 7px;text-align:left;vertical-align:top}
-th{background:#eee}td:first-child{font-weight:700;white-space:nowrap;width:9em}i{color:#555}.none{color:#aaa}
+<style>body{font:14px/1.4 'IBM Plex Sans Condensed','Arial Narrow',system-ui,sans-serif;margin:24px;color:#13233f}
+h1,h2,th,.tb{text-transform:uppercase;letter-spacing:.06em}h1{font-size:22px;margin:0 0 12px}h2{font-size:15px;margin:18px 0 6px}
+table{border-collapse:collapse;width:100%;page-break-inside:avoid}th,td{border:1px solid #13233f;padding:5px 7px;text-align:left;vertical-align:top}
+th{font:600 11px ui-monospace,monospace;background:#ebe7da}td:first-child{font:600 12px ui-monospace,monospace;text-transform:uppercase;white-space:nowrap;width:9em}i{color:#56627b;font-style:normal}.none{color:#aaa}
+.tb{display:flex;margin:20px 0 0 auto;max-width:560px;border:2px solid #13233f;font:500 10px ui-monospace,monospace;color:#56627b;page-break-inside:avoid}.tb div{flex:1;border:1px solid #13233f;padding:3px 8px 5px}.tb b{display:block;font:600 15px 'IBM Plex Sans Condensed','Arial Narrow',sans-serif;color:#13233f}
 @page{margin:12mm}</style></head><body><h1>${esc(robotName)} controls</h1>
 ${sheets.map((s) => `<h2>${esc(s.title)}</h2><table><tr><th>Input</th>${s.modes.map((m) => `<th>${esc(m)}</th>`).join('')}</tr>
 ${s.rows.map((r) => `<tr><td>${esc(r.label)}</td>${r.cells.map((c) => `<td>${cell(c)}</td>`).join('')}</tr>`).join('\n')}</table>`).join('\n')}
+<div class="tb"><div>Robot<b>${esc(robotName)}</b></div><div>Drawing<b>Driver station controls</b></div><div>Made with<b>Linkage</b></div></div>
 </body></html>`;
 }
