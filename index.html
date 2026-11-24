@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Linkage</title>
 <meta name="description" content="Map FRC controller inputs to WPILib commands and generate configureBindings().">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+
+
+<link rel="stylesheet" href="assets/fonts/fonts.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -17,6 +17,7 @@
     <p>Controller bindings for WPILib command-based robots</p>
   </div>
   <nav class="tabs" aria-label="Views">
+    <a href="#project" data-tab="project">Project</a>
     <a href="#bindings" data-tab="bindings">Bindings</a>
     <a href="#robot" data-tab="robot">Robot</a>
     <a href="#code" data-tab="code">Code</a>
@@ -29,7 +30,10 @@
     <button id="redoBtn" data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
   </div>
 </header>
+<div id="projbar" class="projbar no-print" hidden></div>
 <main id="main" class="band"></main>
+<div id="dialog"></div>
+<input type="file" id="dirPick" webkitdirectory multiple hidden>
 <footer class="foot band no-print">
   <p>Opens with an example robot (a 2024-style note game). Edit it, or clear it under Save &amp; import. Your work stays in this browser. Linkage is AI-generated; check the code before you deploy it.</p>
 </footer>

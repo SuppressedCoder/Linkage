@@ -164,6 +164,7 @@ export function blankConfig() {
     conditions: [],
     modes: { enumName: 'Mode', field: 'mode', list: [] },
     bindings: [],
+    keep: [],
   };
 }
 
@@ -199,9 +200,9 @@ export function exampleConfig() {
     { id: 'pass', name: 'Pass note', expr: 'shooter.pass()', reqs: ['shooter'] },
   ];
   c.conditions = [
-    { id: 'hasNote', name: 'hasNote', supplier: 'intake::hasNote' },
-    { id: 'armAtSetpoint', name: 'armAtSetpoint', supplier: '() -> arm.atSetpoint()' },
-    { id: 'shooterReady', name: 'shooterReady', supplier: 'shooter::atSpeed' },
+    { id: 'hasNote', name: 'hasNote', supplier: 'intake::hasNote', kind: 'supplier' },
+    { id: 'armAtSetpoint', name: 'armAtSetpoint', supplier: '() -> arm.atSetpoint()', kind: 'supplier' },
+    { id: 'shooterReady', name: 'shooterReady', supplier: 'shooter.atSpeed()', kind: 'trigger' },
   ];
   c.modes.list = [
     { id: 'intake', name: 'Intake', const: 'INTAKE' },
@@ -249,7 +250,9 @@ export function normalizeConfig(raw) {
   c.commands = arr(raw.commands).map((k, i) => ({
     id: str(k.id, 'k' + i), name: str(k.name), expr: str(k.expr), reqs: Array.isArray(k.reqs) ? k.reqs.map(String) : [],
   }));
-  c.conditions = arr(raw.conditions).map((k, i) => ({ id: str(k.id, 'q' + i), name: str(k.name), supplier: str(k.supplier) }));
+  c.conditions = arr(raw.conditions).map((k, i) => ({
+    id: str(k.id, 'q' + i), name: str(k.name), supplier: str(k.supplier), kind: k.kind === 'trigger' ? 'trigger' : 'supplier',
+  }));
   const m = raw.modes && typeof raw.modes === 'object' ? raw.modes : {};
   c.modes = {
     enumName: str(m.enumName, 'Mode'), field: str(m.field, 'mode'),
@@ -262,6 +265,7 @@ export function normalizeConfig(raw) {
     conds: arr(x.conds).map((q) => ({ op: q.op === 'or' ? 'or' : 'and', neg: !!q.neg, ref: str(q.ref) })),
     debounce: optNum(x.debounce), threshold: optNum(x.threshold),
   }));
+  c.keep = Array.isArray(raw.keep) ? raw.keep.filter((x) => typeof x === 'string' && x.trim()) : [];
   return c;
 }
 

@@ -20,6 +20,8 @@ export function index(cfg) {
 }
 
 export const conditionVar = (q) => camel(q.name, 'condition');
+/** What a condition's Trigger variable is set to: new Trigger(supplier), or a Trigger expression as-is. */
+export const conditionInit = (q) => (q.kind === 'trigger' && q.supplier.trim() ? q.supplier.trim() : `new Trigger(${q.supplier.trim() || '() -> false'})`);
 export const modeVar = (m) => camel(m.name + ' mode', 'mode');
 const constName = (m) => (m.const || m.name || 'MODE').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 
@@ -118,7 +120,7 @@ export function bindingStatement(cx, b, indent = IND) {
   const p = bindingParts(cx, b);
   if (!p) return null;
   const one = `${indent}${p.base}.${p.calls.join('.')};`;
-  if (one.length <= WRAP && p.calls.length <= 3) return one;
+  if (p.calls.length < 2 || (one.length <= WRAP && p.calls.length <= 3)) return one;
   return [`${indent}${p.base}`, ...p.calls.map((c, i) => `${indent}${IND}${IND}.${c}${i === p.calls.length - 1 ? ';' : ''}`)].join('\n');
 }
 
@@ -153,35 +155,54 @@ export function imports(cfg) {
   }
   const exprs = cfg.commands.filter((k) => cfg.bindings.some((b) => b.cmd === k.id)).map((k) => k.expr);
   if (exprs.some((e) => /\bCommands\./.test(e))) out.add('edu.wpi.first.wpilibj2.command.Commands');
-  if (exprs.some((e) => /\bRumbleType\./.test(e))) out.add('edu.wpi.first.wpilibj.GenericHID.RumbleType');
+  if (exprs.some((e) => /(?<![\w.])RumbleType\./.test(e))) out.add('edu.wpi.first.wpilibj.GenericHID.RumbleType');
   return [...out].sort();
+}
+
+/** Fields RobotContainer needs: controllers, plus the mode enum and field when modes are used. [{ key, lines }] */
+export function fieldBlocks(cfg) {
+  const cx = context(cfg);
+  const out = cfg.controllers.map((c) => ({ key: `controller:${c.var}`, ctrl: c, lines: [`private final ${ctype(c.type).cls} ${c.var} = new ${ctype(c.type).cls}(${c.port});`] }));
+  if (usedModes(cx).length) {
+    const all = cfg.modes.list;
+    out.push({
+      key: 'modes',
+      lines: [
+        '/** Operator modes: the same button can do something different in each. */',
+        `private enum ${cfg.modes.enumName} { ${all.map(constName).join(', ')} }`,
+        `private ${cfg.modes.enumName} ${cfg.modes.field} = ${cfg.modes.enumName}.${constName(all[0])};`,
+      ],
+    });
+  }
+  return out;
 }
 
 /** The full generated text: imports, fields, then configureBindings(). */
 export function generateJava(cfg) {
-  const cx = context(cfg);
   const L = [];
   L.push('// ---- Imports (merge with the ones RobotContainer already has) ----');
   for (const i of imports(cfg)) L.push(`import ${i};`);
   L.push('');
   L.push('// ---- Fields in RobotContainer ----');
-  for (const c of cfg.controllers) {
-    L.push(`private final ${ctype(c.type).cls} ${c.var} = new ${ctype(c.type).cls}(${c.port});`);
-  }
-  const modes = usedModes(cx);
-  if (modes.length) {
-    const all = cfg.modes.list;
-    L.push('');
-    L.push('/** Operator modes: the same button can do something different in each. */');
-    L.push(`private enum ${cfg.modes.enumName} { ${all.map(constName).join(', ')} }`);
-    L.push(`private ${cfg.modes.enumName} ${cfg.modes.field} = ${cfg.modes.enumName}.${constName(all[0])};`);
-  }
+  fieldBlocks(cfg).forEach((f, i) => {
+    if (i && f.key === 'modes') L.push('');
+    L.push(...f.lines);
+  });
   L.push('');
+  L.push(...methodLines(cfg));
+  return L.join('\n') + '\n';
+}
+
+/** configureBindings() as lines, indented with two spaces. */
+export function methodLines(cfg) {
+  const cx = context(cfg);
+  const modes = usedModes(cx);
+  const L = [];
   L.push('private void configureBindings() {');
   const conds = usedConditions(cx);
   if (conds.length) {
     L.push(`${IND}// Robot state`);
-    for (const q of conds) L.push(`${IND}Trigger ${conditionVar(q)} = new Trigger(${q.supplier.trim() || '() -> false'});`);
+    for (const q of conds) L.push(`${IND}Trigger ${conditionVar(q)} = ${conditionInit(q)};`);
   }
   if (modes.length) {
     if (conds.length) L.push('');
@@ -219,6 +240,25 @@ export function generateJava(cfg) {
     for (const m of cfg.modes.list) section(`${head}: ${m.name.toLowerCase()} mode`, mine.filter((b) => b.mode === m.id));
   }
   section('Robot state triggers', cfg.bindings.filter((b) => b.ctrl === 'state'));
+  if (cfg.keep?.length) {
+    L.push('');
+    L.push(`${IND}// Kept as written (Linkage doesn't edit these)`);
+    for (const raw of cfg.keep) {
+      const text = raw.trim();
+      const lines = (/[;}]$/.test(text) ? text : text + ';').split(/\r?\n/);
+      const lead = (l) => l.length - l.trimStart().length;
+      const rest = lines.slice(1).filter((l) => l.trim());
+      const pad = rest.length ? Math.min(...rest.map(lead)) : 0;
+      const steps = rest.map((l) => lead(l) - pad).filter((n) => n > 0);
+      const step = steps.length ? Math.min(...steps) : 2;
+      const block = lines[0].trimEnd().endsWith('{');
+      L.push(IND + lines[0], ...lines.slice(1).map((l) => {
+        if (!l.trim()) return '';
+        const level = Math.round((lead(l) - pad) / step) + (block ? 0 : 2);
+        return IND + IND.repeat(level) + l.trimStart();
+      }));
+    }
+  }
   L.push('}');
-  return L.join('\n') + '\n';
+  return L.join('\n').split('\n');
 }

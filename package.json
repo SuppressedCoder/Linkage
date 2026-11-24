@@ -1,12 +1,23 @@
 {
   "name": "linkage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Map controller inputs to WPILib commands and generate the binding code.",
+  "description": "Manage every Trigger binding in a WPILib robot project: controller pictures, code generation, cross-file checks.",
   "type": "module",
   "scripts": {
+    "start": "node scripts/ensure-electron.mjs && electron .",
     "test": "node --test test/*.test.js",
-    "serve": "python3 -m http.server 8000"
+    "uitest": "node scripts/uitest.mjs",
+    "dist": "node scripts/ensure-electron.mjs && electron-builder",
+    "serve": "python3 -m http.server 8000",
+    "postinstall": "node scripts/ensure-electron.mjs"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
+    "playwright": "^1.63.0"
+  },
+  "main": "electron/main.js",
+  "author": "RoboticsIsEpik"
 }
