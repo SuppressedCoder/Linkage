@@ -73,6 +73,19 @@ await page.click('[data-act=closePanel]');
 
 await page.click('[data-panel=setup]');
 ok((await page.$$('.panel-setup table')).length >= 4, 'setup panel lists commands, triggers, modes, subsystems and controllers');
+// Each controller type has its own drawing, and every trigger sits behind its bumper.
+const shapes = {};
+for (const type of ['ps4', 'ps5', 'xbox']) {
+  await page.selectOption('#controllers-driver-type', type);
+  await page.click('[data-act=closePanel]');
+  await page.click('[data-act=ctrl][data-ctrl=driver]');
+  shapes[type] = await page.getAttribute('.pad .body', 'd');
+  const t = await (await page.$('g[data-in=lt]')).boundingBox();
+  const bm = await (await page.$('g[data-in=lb]')).boundingBox();
+  ok(t.y < bm.y && t.y + t.height > bm.y + 4, `${type}: the left trigger tucks behind the bumper`);
+  await page.click('[data-panel=setup]');
+}
+ok(new Set(Object.values(shapes)).size === 3, 'Xbox, PS4 and PS5 have different outlines');
 await page.click('[data-act=closePanel]');
 
 await page.click('[data-panel=cheat]');

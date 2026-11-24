@@ -100,7 +100,7 @@ label { display: grid; gap: 3px; font: 600 11.5px var(--mono); text-transform: u
 /* a card is a sheet laid on the drawing */
 .card { background: var(--field); border: 1px solid var(--rule); padding: 16px; box-shadow: 5px 5px 0 var(--shadow); }
 .sec { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
-.toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; }
+.toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
 .toolbar p { margin: 0; }
 
 /* the one screen */
@@ -116,7 +116,7 @@ label { display: grid; gap: 3px; font: 600 11.5px var(--mono); text-transform: u
 .seg.on { background: var(--team); color: var(--onteam); border-color: var(--team); position: relative; }
 .seg.on small { color: inherit; opacity: .8; }
 .sheet h2::before { content: ''; display: inline-block; width: 11px; height: 11px; background: var(--team); margin-right: 10px; vertical-align: 1px; }
-.others { margin-top: 14px; padding-top: 4px; border-top: 1px solid var(--rule); }
+.others { margin-top: 16px; padding-top: 6px; border-top: 1px solid var(--rule); }
 .others h3 { margin: 10px 0 2px; font-size: 15px; }
 .others p { font-size: 14.5px; margin-bottom: 8px; }
 .conflicts h2 { font-size: 18px; }
@@ -142,19 +142,19 @@ label { display: grid; gap: 3px; font: 600 11.5px var(--mono); text-transform: u
 .pad .in.sel > title + * { stroke: var(--yellow); stroke-width: 4; }
 .pad .in:focus-visible > title + * { stroke: var(--yellow); stroke-width: 4; stroke-dasharray: 4 3; }
 
-.legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 0 14px; }
-.lg { width: 100%; background: transparent; border: 0; border-bottom: 1px dotted var(--line); padding: 6px 6px; min-height: 36px; display: grid; grid-template-columns: 5.6em 1fr; gap: 8px; text-align: left; align-items: start; font: 400 15px/1.35 var(--sans); text-transform: none; letter-spacing: 0; }
-.lg b { font: 600 13px/1.6 var(--mono); text-transform: uppercase; color: var(--team); }
+.legend { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 0 16px; }
+.lg { width: 100%; background: transparent; border: 0; border-bottom: 1px dotted var(--line); padding: 7px 10px 7px 14px; min-height: 38px; display: grid; grid-template-columns: 5.8em 1fr; gap: 10px; text-align: left; align-items: baseline; font: 400 15px/1.35 var(--sans); text-transform: none; letter-spacing: 0; }
+.lg b { font: 600 13px/1.35 var(--mono); text-transform: uppercase; color: var(--team); }
 .lg em { color: var(--muted); font-style: normal; font-size: 13px; }
 .lg:hover, .lg.on { background: var(--panel); }
 .lg.on { box-shadow: inset 4px 0 0 var(--yellow); }
 .lg:active:not(:disabled) { transform: none; }
 
 .editor { border-top: 4px solid var(--team); }
-.editor > header { margin-bottom: 12px; }
+.editor > header { margin-bottom: 14px; display: grid; gap: 2px; }
 .editor > header h2 { font-size: 24px; }
 .binding { border: 1px solid var(--rule); padding: 12px; margin-bottom: 12px; display: grid; gap: 10px; background: var(--bg); }
-.binding.warned { border-color: var(--warn); box-shadow: inset 4px 0 0 var(--warn); }
+.binding.warned { border-color: var(--warn); box-shadow: inset 4px 0 0 var(--warn); padding-left: 16px; }
 .binding .del { margin-left: auto; align-self: start; }
 .binding .row > label:first-child { flex: 2 1 170px; }
 .cond { display: grid; grid-template-columns: 76px auto minmax(0, 1fr) 36px; gap: 6px; align-items: center; margin-bottom: 6px; }
