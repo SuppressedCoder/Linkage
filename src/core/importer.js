@@ -7,7 +7,7 @@ const BIND = ['onTrue', 'onFalse', 'whileTrue', 'whileFalse', 'toggleOnTrue', 't
 const CLS = { CommandXboxController: 'xbox', CommandPS4Controller: 'ps4', CommandPS5Controller: 'ps5' };
 const AXIS_NUM_XBOX = { 0: 'kLeftX', 1: 'kLeftY', 2: 'kLeftTrigger', 3: 'kRightTrigger', 4: 'kRightX', 5: 'kRightY' };
 
-/** Remove comments, keeping string and char literals intact. */
+/** Blank out comments with spaces (offsets and line numbers stay valid), keeping string and char literals intact. */
 export function stripComments(src) {
   let out = '';
   for (let i = 0; i < src.length; i++) {
@@ -18,8 +18,11 @@ export function stripComments(src) {
       out += src.slice(i, j + 1);
       i = j;
     } else if (c === '/' && n === '/') {
-      while (i < src.length && src[i] !== '\n') i++;
-      out += '\n';
+      while (i < src.length && src[i] !== '\n') {
+        out += ' ';
+        i++;
+      }
+      out += src[i] ?? '';
     } else if (c === '/' && n === '*') {
       const end = src.indexOf('*/', i + 2);
       const chunk = src.slice(i, end < 0 ? src.length : end + 2);
@@ -149,9 +152,10 @@ export function commandName(expr) {
   let word = /^new\s+([A-Z]\w*)/.exec(e)?.[1];
   if (!word) {
     const calls = [...e.matchAll(/\.?([A-Za-z_]\w*)\s*\(/g)].map((m) => m[1]);
-    word = calls.find((w) => !['Commands', 'runOnce', 'run', 'startEnd', 'runEnd', 'withTimeout', 'until'].includes(w)) || calls[0];
+    const skip = ['Commands', 'runOnce', 'run', 'startEnd', 'runEnd', 'withTimeout', 'until', 'getHID', 'get', 'andThen', 'alongWith'];
+    word = calls.find((w) => !skip.includes(w)) || calls[0];
     const ref = /::\s*(\w+)/.exec(e)?.[1];
-    if (ref && /^Commands\.(runOnce|run)\b/.test(e)) word = ref;
+    if (ref && /^(Commands\.)?(runOnce|run)\b/.test(e)) word = ref;
   }
   if (!word) return 'Command';
   const words = word.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
@@ -167,74 +171,99 @@ function conditionName(supplier) {
   return null;
 }
 
-/**
- * Read a RobotContainer.java. Returns { config, recognized, problems } where problems is a list of
- * { text, code } for everything that was skipped.
- */
-export function importJava(source) {
-  const src = stripComments(String(source || ''));
-  const cfg = blankConfig();
-  cfg.controllers = [];
-  const problems = [];
-  const consts = {};
-  for (const m of src.matchAll(/\b([A-Za-z_]\w*)\s*=\s*(\d+)\s*;/g)) consts[m[1]] = Number(m[2]);
 
+/**
+ * Split source into statements: at `;` outside brackets, and (when `braces`) also at `{` and `}`
+ * outside parentheses. With `braces` off, a `}` that closes back to depth 0 also ends a statement,
+ * so an if-block stays one statement. Each entry: { text, start, end } with offsets into `src`.
+ */
+export function statements(src, from = 0, to = src.length, braces = false) {
+  const out = [];
+  let depth = 0, paren = 0, start = from;
+  const push = (end, next) => {
+    const raw = src.slice(start, end);
+    const lead = raw.length - raw.trimStart().length;
+    const text = raw.trim();
+    if (text) out.push({ text, start: start + lead, end: start + lead + text.length });
+    start = next;
+  };
+  for (let i = from; i < to; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < to && src[j] !== c) j += src[j] === '\\' ? 2 : 1;
+      i = j;
+    } else if (c === '(' || c === '[') paren++;
+    else if (c === ')' || c === ']') paren--;
+    else if (c === '{') {
+      if (braces && paren === 0) push(i, i + 1);
+      else depth++;
+    } else if (c === '}') {
+      if (braces && paren === 0) push(i, i + 1);
+      else if (--depth === 0 && paren === 0 && !braces) push(i + 1, i + 1);
+    } else if (c === ';' && paren === 0 && (braces || depth === 0)) push(i, i + 1);
+  }
+  push(to, to);
+  return out;
+}
+
+/** Line number (1-based) of an offset. */
+export function lineAt(src, offset) {
+  let n = 1;
+  for (let i = 0; i < offset && i < src.length; i++) if (src[i] === '\n') n++;
+  return n;
+}
+
+const norm = (e) => e.replace(/\s+/g, ' ').trim();
+/** A lambda or method reference is a BooleanSupplier; any other expression is taken to be a Trigger. */
+export const conditionKind = (expr) => (/->|::/.test(expr) ? 'supplier' : 'trigger');
+
+/** Controller fields in a source file: [{ cls, var, port, portText, start }]. */
+export function controllerFields(src, consts = {}) {
+  const out = [];
   for (const m of src.matchAll(/\b(Command(?:Xbox|PS4|PS5)Controller)\s+(\w+)\s*=\s*new\s+Command(?:Xbox|PS4|PS5)Controller\s*\(\s*([^)]*?)\s*\)/g)) {
     let port = Number(m[3]);
-    if (!Number.isInteger(port)) port = consts[m[3].split('.').pop()] ?? cfg.controllers.length;
-    const name = m[2].replace(/^m_/, '').replace(/Controller$|Joystick$/i, '') || m[2];
-    cfg.controllers.push({ id: m[2], name: name[0].toUpperCase() + name.slice(1), var: m[2], port, type: CLS[m[1]] });
+    if (m[3] === '' || !Number.isInteger(port)) port = consts[m[3].split('.').pop()] ?? null;
+    out.push({ cls: m[1], type: CLS[m[1]], var: m[2], port, portText: m[3], start: m.index });
   }
-  for (const m of src.matchAll(/\b(CommandGenericHID|CommandJoystick)\s+(\w+)\s*=/g)) {
-    problems.push({ text: `${m[1]} "${m[2]}" is not supported yet (Xbox, PS4 and PS5 only); its bindings are skipped.`, code: m[0] });
-  }
-  if (!cfg.controllers.length) {
-    cfg.controllers = blankConfig().controllers;
-    problems.push({ text: 'No CommandXboxController / CommandPS4Controller / CommandPS5Controller fields found; using a driver on port 0 and an operator on port 1.', code: '' });
-  }
-  const ctrlByVar = Object.fromEntries(cfg.controllers.map((c) => [c.var, c]));
+  return out;
+}
 
-  const skipTypes = new Set(['Trigger', 'SendableChooser', ...Object.keys(CLS), 'CommandGenericHID', 'CommandJoystick']);
-  for (const m of src.matchAll(/\b([A-Z]\w*)\s+(\w+)\s*=\s*new\s+\1\s*\(/g)) {
-    if (skipTypes.has(m[1]) || cfg.subsystems.some((s) => s.var === m[2])) continue;
-    const name = m[1].replace(/Subsystem$/, '') || m[1];
-    cfg.subsystems.push({ id: m[2], name, var: m[2] });
-  }
+/** Integer constants anywhere in the given sources, by simple name. */
+export function intConstants(...sources) {
+  const consts = {};
+  for (const src of sources) for (const m of src.matchAll(/\b([A-Za-z_]\w*)\s*=\s*(\d+)\s*;/g)) consts[m[1]] = Number(m[2]);
+  return consts;
+}
 
-  let body = src;
-  const head = /void\s+configureBindings\s*\(\s*\)\s*\{/.exec(src);
-  if (head) {
-    const open = head.index + head[0].length - 1;
-    const end = closeOf(src, open);
-    body = src.slice(open + 1, end < 0 ? src.length : end - 1);
-  } else {
-    problems.push({ text: 'No configureBindings() method found; reading binding statements from the whole file.', code: '' });
-    body = src.replace(/[{}]/g, ';');
-  }
-
-  const conds = {}; // var -> condition id
-  const modes = {}; // var -> mode id
-  const aliases = {}; // var -> { ctrl, input, threshold, mode, conds, debounce }
+/**
+ * A statement reader shared by the RobotContainer importer and the project scanner.
+ * It adds conditions, modes, commands and bindings to `cfg` as it reads.
+ * opts.ctrlByVar: controller variable -> controller in cfg. opts.reqsFor(expr): subsystem ids, optional.
+ */
+export function createReader(cfg, opts) {
+  const ctrlByVar = opts.ctrlByVar;
+  const conds = {}; // trigger variable -> condition id
+  const modes = {}; // mode trigger variable -> mode id
+  const aliases = {}; // input trigger variable -> base state
   const cmdByExpr = {};
-  let recognized = 0;
-  const norm = (e) => e.replace(/\s+/g, ' ').trim();
+  const reqsFor = opts.reqsFor || ((expr) => cfg.subsystems.filter((s) => s.var && new RegExp(`\\b${s.var}\\b`).test(expr)).map((s) => s.id));
 
-  const addCondition = (supplier, name) => {
-    const existing = cfg.conditions.find((q) => norm(q.supplier) === norm(supplier));
+  const addCondition = (expr, name, kind = conditionKind(expr)) => {
+    const existing = cfg.conditions.find((q) => norm(q.supplier) === norm(expr) && (q.kind || 'supplier') === kind);
     if (existing) return existing.id;
-    let base = camel(name || conditionName(supplier) || 'condition' + (cfg.conditions.length + 1));
+    const base = camel(name || conditionName(expr) || 'condition' + (cfg.conditions.length + 1));
     let n = base, k = 2;
     while (cfg.conditions.some((q) => q.name === n)) n = base + k++;
     const id = uid('q');
-    cfg.conditions.push({ id, name: n, supplier: supplier.trim() });
+    cfg.conditions.push({ id, name: n, supplier: norm(expr), kind });
     return id;
   };
   const addCommand = (expr) => {
     const key = norm(expr);
     if (cmdByExpr[key]) return cmdByExpr[key];
     const id = uid('k');
-    const reqs = cfg.subsystems.filter((s) => new RegExp(`\\b${s.var}\\b`).test(expr)).map((s) => s.id);
-    cfg.commands.push({ id, name: commandName(expr), expr: key, reqs });
+    cfg.commands.push({ id, name: commandName(expr), expr: key, reqs: reqsFor(expr) });
     cmdByExpr[key] = id;
     return id;
   };
@@ -250,6 +279,7 @@ export function importJava(source) {
     }
     return mode.id;
   };
+  const blank = (ctrl, input, threshold = null) => ({ ctrl, input, threshold, mode: null, conds: [], debounce: null });
 
   /** A plain input trigger from an and()/or() argument, or null. */
   const inputRef = (text) => {
@@ -265,29 +295,39 @@ export function importJava(source) {
     return null;
   };
 
-  /** Read a chain into a base state; returns { state, rest } or a string error. */
-  const readBase = (ch) => {
+  const CHAIN = new Set(['and', 'or', 'negate', 'debounce', ...BIND]);
+
+  /** Read the start of a chain into a base state: { state, rest } or an error string. */
+  const readBase = (ch, text) => {
     const p = ch.primary;
     if (p.kind === 'new') {
-      const mm = modeFrom(p.arg);
-      if (mm) return 'a mode Trigger used on its own';
-      return { state: { ctrl: 'state', input: addCondition(p.arg), threshold: null, mode: null, conds: [], debounce: null }, rest: ch.calls };
+      if (modeFrom(p.arg)) return 'a mode Trigger used on its own';
+      return { state: blank('state', addCondition(p.arg, null, 'supplier')), rest: ch.calls };
     }
     if (ctrlByVar[p.name]) {
       const c = ctrlByVar[p.name];
       if (!ch.calls.length) return 'a controller without an input';
       const inp = mapInput(c.type, ch.calls[0]);
       if (!inp) return `${p.name}.${ch.calls[0].name}(${ch.calls[0].args}) is not an input Linkage knows`;
-      return { state: { ctrl: c.id, input: inp.input, threshold: inp.threshold, mode: null, conds: [], debounce: null }, rest: ch.calls.slice(1) };
+      return { state: blank(c.id, inp.input, inp.threshold), rest: ch.calls.slice(1) };
     }
     if (aliases[p.name]) return { state: structuredClone(aliases[p.name]), rest: ch.calls };
-    if (conds[p.name]) return { state: { ctrl: 'state', input: conds[p.name], threshold: null, mode: null, conds: [], debounce: null }, rest: ch.calls };
-    return `"${p.name}" is not a controller or a Trigger declared in configureBindings()`;
+    if (conds[p.name]) return { state: blank('state', conds[p.name]), rest: ch.calls };
+    // Something else that returns a Trigger, such as intake.hasNote() or elevator.atHeight(1.2).
+    const firstChain = ch.calls.findIndex((c) => CHAIN.has(c.name));
+    if (firstChain > 0) {
+      const head = text.trim().replace(/^this\s*\.\s*/, '');
+      const prefix = [p.name, ...ch.calls.slice(0, firstChain).map((c) => `${c.name}(${c.args})`)].join('.');
+      if (norm(head).replace(/\s/g, '').startsWith(prefix.replace(/\s/g, ''))) {
+        return { state: blank('state', addCondition(prefix, ch.calls[firstChain - 1].name, 'trigger')), rest: ch.calls.slice(firstChain) };
+      }
+    }
+    return `"${p.name}" is not a controller or a Trigger Linkage knows`;
   };
 
-  /** Apply calls; emits bindings. Returns error string or { state, count }. */
+  /** Apply chained calls, adding bindings. Returns { state, ids } or an error string. */
   const apply = (state, calls) => {
-    let count = 0;
+    const ids = [];
     for (const call of calls) {
       if (call.name === 'and' || call.name === 'or') {
         let arg = call.args.trim();
@@ -307,73 +347,148 @@ export function importJava(source) {
         }
         let ref = conds[arg] ? `cond:${conds[arg]}` : inputRef(arg);
         if (!ref) {
-          if (/^[\w.]+$/.test(arg) && !arg.includes('.')) return `"${arg}" in ${call.name}() is not a Trigger declared in configureBindings()`;
+          if (/^\w+$/.test(arg)) return `"${arg}" in ${call.name}() is not a Trigger Linkage knows`;
           ref = `cond:${addCondition(arg)}`;
         }
         state.conds.push({ op: call.name, neg, ref });
       } else if (call.name === 'debounce') {
-        const v = Number(splitTop(call.args, ',')[0]);
+        const parts = splitTop(call.args, ',');
+        const v = Number(parts[0]);
         if (!isFinite(v)) return `debounce(${call.args}) has a time Linkage can't read`;
-        if (splitTop(call.args, ',').length > 1) return 'debounce with a DebounceType is not supported yet';
+        if (parts.length > 1) return 'debounce with a DebounceType is not supported yet';
         state.debounce = v;
       } else if (BIND.includes(call.name)) {
         if (!call.args) return `${call.name}() has no command`;
-        cfg.bindings.push({ id: uid('b'), ctrl: state.ctrl, input: state.input, type: call.name, cmd: addCommand(call.args), mode: state.mode, conds: structuredClone(state.conds), debounce: state.debounce, threshold: state.threshold });
-        count++;
+        const id = uid('b');
+        cfg.bindings.push({ id, ctrl: state.ctrl, input: state.input, type: call.name, cmd: addCommand(call.args), mode: state.mode, conds: structuredClone(state.conds), debounce: state.debounce, threshold: state.threshold });
+        ids.push(id);
       } else return `.${call.name}() is not supported`;
     }
-    return { state, count };
+    return { state, ids };
   };
 
-  for (const raw of splitTop(body, ';')) {
-    const stmt = raw.trim();
-    if (!stmt) continue;
-    const short = stmt.replace(/\s+/g, ' ').slice(0, 160);
-    const decl = /^(?:final\s+)?Trigger\s+(\w+)\s*=\s*([\s\S]+)$/.exec(stmt);
+  /**
+   * Read one statement (comments already blanked). Returns
+   * { kind: 'binding', ids } | { kind: 'trigger', name, condition?, alias? } | { kind: 'problem', text } | { kind: 'other' }.
+   */
+  const read = (stmt) => {
+    const s = stmt.replace(/^(?:@\w+\s+)*(?:(?:public|private|protected|static|final)\s+)*/, '');
+    const decl = /^Trigger\s+(\w+)\s*=\s*([\s\S]+)$/.exec(s);
     if (decl) {
       const [, name, rhs] = decl;
       const ch = parseChain(rhs);
       if (ch && ch.primary.kind === 'new' && !ch.calls.length) {
         const mm = modeFrom(ch.primary.arg);
-        if (mm) modes[name] = addMode(mm);
-        else conds[name] = addCondition(ch.primary.arg, name);
-        recognized++;
-        continue;
+        if (mm) {
+          modes[name] = addMode(mm);
+          return { kind: 'trigger', name, mode: modes[name] };
+        }
+        conds[name] = addCondition(ch.primary.arg, name, 'supplier');
+        return { kind: 'trigger', name, condition: conds[name] };
       }
-      const base = ch && readBase(ch);
-      if (!ch || typeof base === 'string') {
-        problems.push({ text: `Couldn't read Trigger ${name}${base ? ': ' + base : ''}.`, code: short });
-        continue;
+      const known = ch && ch.primary.kind === 'id' && (ctrlByVar[ch.primary.name] || aliases[ch.primary.name] || conds[ch.primary.name]);
+      if (ch && !known && !ch.calls.some((c) => BIND.includes(c.name))) {
+        conds[name] = addCondition(rhs, name, 'trigger');
+        return { kind: 'trigger', name, condition: conds[name] };
       }
+      const base = ch && readBase(ch, rhs);
+      if (!ch || typeof base === 'string') return { kind: 'problem', text: `Couldn't read Trigger ${name}${base ? ': ' + base : ''}.` };
+      const before = cfg.bindings.length;
       const r = apply(base.state, base.rest);
-      if (typeof r === 'string') problems.push({ text: `Couldn't read Trigger ${name}: ${r}.`, code: short });
-      else {
-        aliases[name] = r.state;
-        recognized++;
+      if (typeof r === 'string') {
+        cfg.bindings.length = before;
+        return { kind: 'problem', text: `Couldn't read Trigger ${name}: ${r}.` };
       }
-      continue;
+      aliases[name] = r.state;
+      return r.ids.length ? { kind: 'binding', ids: r.ids, alias: name } : { kind: 'trigger', name, alias: true };
     }
-    if (!BIND.some((b) => stmt.includes('.' + b))) {
-      if (/setDefaultCommand/.test(stmt)) problems.push({ text: 'Default commands are not bindings; left out.', code: short });
-      else problems.push({ text: 'Not a binding; left out.', code: short });
-      continue;
+    if (!BIND.some((b) => new RegExp(`\\.\\s*${b}\\s*\\(`).test(s))) {
+      if (/setDefaultCommand/.test(s)) return { kind: 'problem', text: 'Default commands are not bindings; kept as they are.' };
+      return { kind: 'other' };
     }
-    const ch = parseChain(stmt);
-    if (!ch) {
-      problems.push({ text: 'Couldn\'t read this statement as a Trigger chain.', code: short });
-      continue;
-    }
-    const base = readBase(ch);
-    if (typeof base === 'string') {
-      problems.push({ text: `Couldn't read this binding: ${base}.`, code: short });
-      continue;
-    }
+    const ch = parseChain(s);
+    if (!ch) return { kind: 'problem', text: "Couldn't read this statement as a Trigger chain." };
+    const base = readBase(ch, s);
+    if (typeof base === 'string') return { kind: 'problem', text: `Couldn't read this binding: ${base}.` };
     const before = cfg.bindings.length;
     const r = apply(base.state, base.rest);
     if (typeof r === 'string') {
       cfg.bindings.length = before;
-      problems.push({ text: `Couldn't read this binding: ${r}.`, code: short });
-    } else recognized += r.count;
+      return { kind: 'problem', text: `Couldn't read this binding: ${r}.` };
+    }
+    return { kind: 'binding', ids: r.ids };
+  };
+
+  return { read, conds, modes, aliases, addCondition };
+}
+
+/** Subsystem fields `Type name = new Type(...)` that aren't controllers or Triggers: [{ id, name, var, cls }]. */
+export function subsystemFields(src) {
+  const skip = new Set(['Trigger', 'SendableChooser', ...Object.keys(CLS), 'CommandGenericHID', 'CommandJoystick', 'String', 'Field2d', 'PowerDistribution']);
+  const out = [];
+  for (const m of src.matchAll(/\b([A-Z]\w*)\s+(\w+)\s*=\s*new\s+\1\s*\(/g)) {
+    if (skip.has(m[1]) || out.some((s) => s.var === m[2])) continue;
+    out.push({ id: m[2], name: m[1].replace(/Subsystem$/, '') || m[1], var: m[2], cls: m[1] });
+  }
+  return out;
+}
+
+/** The configureBindings() method: { sigStart, open, close } offsets (close is just past the `}`), or null. */
+export function findConfigureBindings(src) {
+  const head = /(?:(?:public|private|protected|static|final)\s+)*void\s+configureBindings\s*\(\s*\)\s*\{/.exec(src);
+  if (!head) return null;
+  const open = head.index + head[0].length - 1;
+  const close = closeOf(src, open);
+  return close < 0 ? null : { sigStart: head.index, open, close };
+}
+
+/**
+ * Read a RobotContainer.java. Returns { config, recognized, problems } where problems is a list of
+ * { text, code, raw } for everything that was skipped; config.keep holds the raw text of each
+ * skipped statement inside configureBindings(), so writing back never loses it.
+ */
+export function importJava(source) {
+  const original = String(source || '');
+  const src = stripComments(original);
+  const cfg = blankConfig();
+  cfg.controllers = [];
+  const problems = [];
+  const consts = intConstants(src);
+
+  for (const f of controllerFields(src, consts)) {
+    const name = f.var.replace(/^m_/, '').replace(/Controller$|Joystick$/i, '') || f.var;
+    cfg.controllers.push({ id: f.var, name: name[0].toUpperCase() + name.slice(1), var: f.var, port: f.port ?? cfg.controllers.length, type: f.type });
+  }
+  for (const m of src.matchAll(/\b(CommandGenericHID|CommandJoystick)\s+(\w+)\s*=/g)) {
+    problems.push({ text: `${m[1]} "${m[2]}" is not supported yet (Xbox, PS4 and PS5 only); its bindings are kept as they are.`, code: m[0], raw: '' });
+  }
+  if (!cfg.controllers.length) {
+    cfg.controllers = blankConfig().controllers;
+    problems.push({ text: 'No CommandXboxController / CommandPS4Controller / CommandPS5Controller fields found; using a driver on port 0 and an operator on port 1.', code: '', raw: '' });
+  }
+  cfg.subsystems = subsystemFields(src).map(({ id, name, var: v }) => ({ id, name, var: v }));
+
+  const reader = createReader(cfg, { ctrlByVar: Object.fromEntries(cfg.controllers.map((c) => [c.var, c])) });
+  const m = findConfigureBindings(src);
+  let list;
+  if (m) list = statements(src, m.open + 1, m.close - 1);
+  else {
+    problems.push({ text: 'No configureBindings() method found; reading binding statements from the whole file.', code: '', raw: '' });
+    list = statements(src, 0, src.length, true);
+  }
+  let recognized = 0;
+  for (const st of list) {
+    const r = reader.read(st.text);
+    const raw = original.slice(st.start, st.end);
+    const code = st.text.replace(/\s+/g, ' ').slice(0, 160);
+    if (r.kind === 'binding' || r.kind === 'trigger') recognized += r.kind === 'binding' ? Math.max(1, r.ids.length) : 1;
+    else if (r.kind === 'problem') {
+      problems.push({ text: r.text, code, raw, line: lineAt(src, st.start) });
+      if (m) cfg.keep.push(raw);
+    } else if (m) {
+      problems.push({ text: 'Not a binding; kept as it is.', code, raw, line: lineAt(src, st.start) });
+      cfg.keep.push(raw);
+    }
   }
   return { config: cfg, recognized, problems };
 }
