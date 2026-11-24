@@ -100,8 +100,8 @@ export function applyToContainer(original, cfg) {
     return !new RegExp(`^\\s*import\\s+(${i.replace(/\./g, '\\.')}|${pkg.replace(/\./g, '\\.')}\\.\\*|${outer.replace(/\./g, '\\.')}\\.\\*)\\s*;`, 'm').test(s3);
   });
   if (need.length) {
-    const imps = [...s3.matchAll(/^\s*import\s+[\w.*]+\s*;[^\n]*$/gm)];
-    const pkg = /^\s*package\s+[\w.]+\s*;[^\n]*$/m.exec(s3);
+    const imps = [...s3.matchAll(/^[ \t]*import\s+[\w.*]+\s*;[^\r\n]*(?=\r?$)/gm)];
+    const pkg = /^[ \t]*package\s+[\w.]+\s*;[^\r\n]*(?=\r?$)/m.exec(s3);
     const lines = need.map((i) => `import ${i};`).join(nl);
     if (imps.length) {
       const last = imps[imps.length - 1];

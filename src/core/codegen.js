@@ -245,7 +245,7 @@ export function methodLines(cfg) {
     L.push(`${IND}// Kept as written (Linkage doesn't edit these)`);
     for (const raw of cfg.keep) {
       const text = raw.trim();
-      const lines = (/[;}]$/.test(text) ? text : text + ';').split('\n');
+      const lines = (/[;}]$/.test(text) ? text : text + ';').split(/\r?\n/);
       const lead = (l) => l.length - l.trimStart().length;
       const rest = lines.slice(1).filter((l) => l.trim());
       const pad = rest.length ? Math.min(...rest.map(lead)) : 0;

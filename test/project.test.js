@@ -12,6 +12,8 @@ import { generateJava } from '../src/core/codegen.js';
 const root = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/robot');
 const walk = (d) => readdirSync(d).flatMap((n) => (statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : [join(d, n)]));
 const files = walk(root).map((p) => ({ path: relative(root, p).split('\\').join('/'), text: readFileSync(p, 'utf8') }));
+// Normalize line endings: on Windows, git may check the fixture out with CRLF.
+for (const f of files) f.text = f.text.replace(/\r\n/g, '\n');
 const containerText = files.find((f) => f.path.endsWith('RobotContainer.java')).text;
 
 test('scan finds triggers and bindings in every file, with lines', () => {
@@ -56,6 +58,15 @@ test('import keeps statements it cannot read, and writing back keeps them', () =
   assert.ok(w.notes.some((n) => /1 comment/.test(n)));
   // applying again changes nothing
   assert.equal(applyToContainer(w.text, importJava(w.text).config).text, w.text);
+});
+
+test('CRLF files are written back with CRLF only', () => {
+  const crlf = containerText.replace(/\n/g, '\r\n');
+  const w = applyToContainer(crlf, importJava(crlf).config);
+  assert.doesNotMatch(w.text, /\r\r|[^\r]\n/);
+  assert.match(w.text, /\r\n {8}if \(Robot\.isSimulation\(\)\) \{\r\n {12}operator\.back\(\)/);
+  assert.equal(applyToContainer(w.text, importJava(w.text).config).text, w.text);
+  assert.deepEqual(scanProject(files.map((f) => ({ ...f, text: f.text.replace(/\n/g, '\r\n') }))).findings.map((f) => f.text), scanProject(files).findings.map((f) => f.text));
 });
 
 test('write-back adds missing fields, modes and imports to a bare container', () => {
