@@ -1,0 +1,44 @@
+appId: org.frc.linkage
+productName: Linkage
+copyright: Linkage contributors
+directories:
+  output: dist
+  buildResources: build
+files:
+  - index.html
+  - styles.css
+  - src/**
+  - assets/**
+  - electron/**
+  - package.json
+asar: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  icon: build/icon.png
+nsis:
+  artifactName: Linkage-Setup-${version}.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Linkage
+portable:
+  artifactName: Linkage-${version}-portable.exe
+mac:
+  artifactName: Linkage-${version}-${arch}.${ext}
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  icon: build/icon.png
+  category: public.app-category.developer-tools
+linux:
+  target: [AppImage, deb]
+  maintainer: RoboticsIsEpik <102563278+SuppressedCoder@users.noreply.github.com>
+  icon: build/icon.png
+  category: Development
+publish: null
