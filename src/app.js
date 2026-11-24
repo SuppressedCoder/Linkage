@@ -4,16 +4,19 @@ import {
   BINDING_TYPES, CONTROLLER_TYPES, INPUTS, exampleConfig, blankConfig, normalizeConfig, inputLabel,
   takesThreshold, inputMethod, DEFAULT_THRESHOLD, uid, camel,
 } from './core/model.js';
-import { generateJava, context, bindingStatement, conditionVar, index } from './core/codegen.js';
+import { generateJava, context, bindingStatement, conditionVar, conditionInit, index } from './core/codegen.js';
 import { check, where } from './core/checks.js';
 import { cheatSheet, cheatMarkdown, cheatHtml } from './core/cheatsheet.js';
 import { importJava } from './core/importer.js';
 import { padSvg } from './ui/pad.js';
+import { scanProject } from './core/scanner.js';
+import { applyToContainer, lineDiff, diffHunks } from './core/writeback.js';
+import { projectView, diffDialog } from './ui/project.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (s) => document.querySelector(s);
 const KEY = 'linkage.config.v1';
-const TABS = ['bindings', 'robot', 'code', 'checks', 'cheatsheet', 'share'];
+const TABS = ['project', 'bindings', 'robot', 'code', 'checks', 'cheatsheet', 'share'];
 
 let cfg;
 try {
@@ -22,7 +25,10 @@ try {
 } catch {
   cfg = exampleConfig();
 }
-const ui = { tab: 'bindings', sel: { ctrl: 'operator', input: 'south' }, view: 'all', newCmd: null, importResult: null, importText: '', toast: '' };
+const ui = { tab: 'bindings', sel: { ctrl: 'operator', input: 'south' }, view: 'all', newCmd: null, importResult: null, importText: '', toast: '', project: null, linked: null, dialog: null };
+const bridge = window.linkage?.desktop ? window.linkage : null;
+const LINK_KEY = 'linkage.linked.v1';
+const hash = (t) => { let h = 5381; for (let i = 0; i < t.length; i++) h = (h * 33 + t.charCodeAt(i)) | 0; return (h >>> 0).toString(36) + ':' + t.length; };
 const undo = [];
 const redo = [];
 
@@ -61,8 +67,9 @@ const selKey = () => `${ui.sel.ctrl}:${ui.sel.input}`;
 
 // ---------- Bindings view ----------
 
-function marksFor(c) {
+function marksFor(c, withExt = true) {
   const m = new Map();
+  if (withExt) for (const b of elsewhere(c)) m.set(b.input, 'ext');
   for (const b of cfg.bindings) {
     if (b.ctrl !== c.id) continue;
     if (visible(b)) m.set(b.input, 'bound');
@@ -71,14 +78,25 @@ function marksFor(c) {
   return m;
 }
 
+/** Bindings on this controller's port made in other files of the open project. */
+function elsewhere(c) {
+  const s = ui.project?.scan;
+  if (!s) return [];
+  const pc = s.config.controllers.find((x) => x.port === c.port);
+  if (!pc) return [];
+  return s.config.bindings.filter((b) => b.ctrl === pc.id && s.where[b.id]?.path !== s.container).map((b) => ({ ...b, at: s.where[b.id], cmdText: s.config.commands.find((k) => k.id === b.cmd)?.name }));
+}
+
 function legend(c) {
+  const ext = elsewhere(c);
   const rows = INPUTS.map((d) => {
     const bs = cfg.bindings.filter((b) => b.ctrl === c.id && b.input === d.id && visible(b));
-    if (!bs.length) return '';
+    const ex = ext.filter((b) => b.input === d.id);
+    if (!bs.length && !ex.length) return '';
     const sel = ui.sel.ctrl === c.id && ui.sel.input === d.id;
     return `<li><button class="lg${sel ? ' on' : ''}" data-act="sel" data-ctrl="${esc(c.id)}" data-in="${d.id}"><b>${esc(inputLabel(c.type, d.id))}</b><span>${bs
       .map((b) => `${esc(BINDING_TYPES.find((t) => t.id === b.type).verb)} ${esc(cmdOf(b.cmd)?.name || 'no command')}${condHint(b)}${b.mode && ui.view === 'all' ? ` <em>${esc(modeName(b.mode) || '')}</em>` : ''}`)
-      .join('<br>')}</span></button></li>`;
+      .join('<br>')}${ex.map((b) => `${bs.length ? '<br>' : ''}<span class="extb">${esc(BINDING_TYPES.find((t) => t.id === b.type).verb)} ${esc(b.cmdText || '?')} <em>in ${esc(b.at.path.split('/').pop())}:${b.at.line}</em></span>`).join('')}</span></button></li>`;
   }).join('');
   return rows ? `<ul class="legend">${rows}</ul>` : '<p class="muted">Nothing bound yet. Click a button on the picture.</p>';
 }
@@ -166,7 +184,7 @@ function editor(problems) {
   if (!c && !q) return `<aside class="editor card"><h2>Pick an input</h2><p class="muted">Click any button, trigger, bumper, stick or D-pad direction on a controller.</p></aside>`;
   const cx = context(cfg);
   const title = isState ? `Robot state: ${q.name}` : `${c.name} ${inputLabel(c.type, input)}`;
-  const base = isState ? `new Trigger(${q.supplier})  // ${conditionVar(q)}` : `${c.var}.${inputMethod(c.type, input, takesThreshold(c.type, input) ? DEFAULT_THRESHOLD : null)}`;
+  const base = isState ? `${conditionVar(q)} = ${conditionInit(q)}` : `${c.var}.${inputMethod(c.type, input, takesThreshold(c.type, input) ? DEFAULT_THRESHOLD : null)}`;
   const list = cfg.bindings.filter((b) => b.ctrl === ctrl && b.input === input);
   return `<aside class="editor card" style="--team:var(--${ctrl === 'operator' ? 'red' : 'blue'})">
     <header><h2>${esc(title)}</h2><code class="muted">${esc(base)}</code></header>
@@ -198,9 +216,9 @@ function viewRobot() {
     </tbody></table></div></section>
   <div class="robot-side">
   <section class="card"><header class="sec"><h2>Robot-state conditions</h2><button class="ghost" data-act="addRow" data-tbl="conditions">+ Condition</button></header>
-    <p class="muted">Each becomes <code>Trigger name = new Trigger(supplier);</code></p>
-    <table class="stack"><thead><tr><th>Name</th><th>BooleanSupplier</th><th></th></tr></thead><tbody>
-    ${cfg.conditions.map((q) => `<tr><td>${inp('conditions', q, 'name')}</td><td>${inp('conditions', q, 'supplier', 'intake::hasNote', 'mono')}</td><td>${del('conditions', q.id)}</td></tr>`).join('')}
+    <p class="muted">A BooleanSupplier becomes <code>Trigger name = new Trigger(supplier);</code>. A Trigger your subsystem exposes is used as it is: <code>Trigger name = intake.hasNote();</code></p>
+    <table class="stack"><thead><tr><th>Name</th><th>Kind</th><th>Supplier or Trigger</th><th></th></tr></thead><tbody>
+    ${cfg.conditions.map((q) => `<tr><td>${inp('conditions', q, 'name')}</td><td><select id="conditions-${esc(q.id)}-kind" data-tbl="conditions" data-id="${esc(q.id)}" data-k="kind" aria-label="kind"><option value="supplier"${q.kind !== 'trigger' ? ' selected' : ''}>BooleanSupplier</option><option value="trigger"${q.kind === 'trigger' ? ' selected' : ''}>Trigger</option></select></td><td>${inp('conditions', q, 'supplier', q.kind === 'trigger' ? 'intake.hasNote()' : 'intake::hasNote', 'mono')}</td><td>${del('conditions', q.id)}</td></tr>`).join('')}
     </tbody></table></section>
   <section class="card"><header class="sec"><h2>Modes</h2><button class="ghost" data-act="addRow" data-tbl="modes">+ Mode</button></header>
     <p class="muted">Generated as an enum field; bind a command such as <code>Commands.runOnce(() -&gt; ${esc(cfg.modes.field)} = ${esc(cfg.modes.enumName)}.SCORING)</code> to switch.</p>
@@ -256,7 +274,7 @@ function viewCheat() {
     <div class="btns"><button class="ghost" data-act="copyCheat">Copy as Markdown</button><button class="ghost" data-act="saveCheat">Save printable page</button><button class="primary" data-act="print">Print</button></div></div>
     <div class="cheat">${sheets.map((s) => `<section class="card sheet" style="--team:var(--${s.id === 'operator' ? 'red' : 'blue'})">
       <h2>${esc(s.title)}</h2>
-      ${s.controller ? padSvg(s.controller, marksFor(s.controller), null) : ''}
+      ${s.controller ? padSvg(s.controller, marksFor(s.controller, false), null) : ''}
       <div class="scroll"><table><thead><tr><th>Input</th>${s.modes.map((m) => `<th>${esc(m)}</th>`).join('')}</tr></thead>
       <tbody>${s.rows.map((r) => `<tr><td class="inp">${esc(r.label)}</td>${r.cells.map((c) => `<td>${cell(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
     </section>`).join('') || '<p class="muted">No bindings yet.</p>'}</div>`;
@@ -298,7 +316,9 @@ function render() {
   $('#checkCount').textContent = warnN ? String(warnN) : '';
   $('#undoBtn').disabled = !undo.length;
   $('#redoBtn').disabled = !redo.length;
-  const views = { bindings: viewBindings, robot: viewRobot, code: viewCode, checks: viewChecks, cheatsheet: viewCheat, share: viewShare };
+  renderBar();
+  $('#dialog').innerHTML = ui.dialog || '';
+  const views = { project: () => projectView(ui.project), bindings: viewBindings, robot: viewRobot, code: viewCode, checks: viewChecks, cheatsheet: viewCheat, share: viewShare };
   const active = document.activeElement?.id;
   $('#main').innerHTML = views[ui.tab](problems);
   if (active && document.getElementById(active)) document.getElementById(active).focus();
@@ -306,8 +326,77 @@ function render() {
 
 function route() {
   const h = location.hash.slice(1);
-  ui.tab = TABS.includes(h) ? h : 'bindings';
+  ui.tab = TABS.includes(h) ? h : bridge && !ui.project ? 'project' : 'bindings';
   render();
+}
+
+// ---------- Project ----------
+
+/** Edited since the bindings were loaded from (or written to) the file. */
+const isDirty = () => !!ui.linked && JSON.stringify(cfg) !== ui.linked.baseline;
+const wouldChange = () => {
+  try {
+    return applyToContainer(ui.linked.text, cfg).text !== ui.linked.text;
+  } catch {
+    return true;
+  }
+};
+function renderBar() {
+  const bar = $('#projbar');
+  if (!ui.project) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  const s = ui.project.scan;
+  const dirty = isDirty();
+  const file = ui.linked ? ui.linked.path.split('/').pop() : null;
+  bar.innerHTML = `<span><b>${esc(ui.project.name)}</b>${file ? ` · editing <code>${esc(file)}</code>` : ''}</span>
+    ${ui.linked ? (dirty ? '<span class="dirty">Changes not written to the file yet</span>' : '<span class="clean">Matches the file</span>') : ''}
+    <span class="grow"></span>
+    ${s.container && !ui.linked ? '<button class="ghost" data-act="editContainer">Edit RobotContainer bindings</button>' : ''}
+    ${bridge && ui.linked ? `<button class="${dirty ? 'primary' : 'ghost'}" data-act="writeFile"${dirty || wouldChange() ? '' : ' disabled'}>Write ${esc(file)}</button>` : ''}
+    ${bridge ? '<button class="ghost" data-act="rescan">Rescan</button>' : ''}`;
+}
+
+function setProject(result, { reopen = false } = {}) {
+  if (!result) return;
+  ui.project = { ...result, scan: scanProject(result.files), filter: 'all', desktop: !!bridge };
+  const s = ui.project.scan;
+  const file = s.container && result.files.find((f) => f.path === s.container);
+  if (file) {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(LINK_KEY) || 'null'); } catch { /* optional */ }
+    const same = saved && saved.root === result.root && saved.path === file.path && saved.hash === hash(file.text);
+    ui.linked = { path: file.path, text: file.text, baseline: saved?.baseline ?? '' };
+    if (!(reopen && same)) loadContainer();
+  } else ui.linked = null;
+  render();
+}
+
+function loadContainer() {
+  const r = importJava(ui.linked.text);
+  commit(() => (cfg = normalizeConfig(r.config)));
+  ui.linked.baseline = JSON.stringify(cfg);
+  rememberLink();
+  pickFirst();
+  const unread = r.problems.filter((p) => p.raw && !/kept as/.test(p.text)).length;
+  toast(`Loaded ${r.config.bindings.length} bindings from ${ui.linked.path.split('/').pop()}${unread ? `; ${unread} statement(s) kept as written` : ''}`);
+}
+function rememberLink() {
+  try { localStorage.setItem(LINK_KEY, JSON.stringify({ root: ui.project.root, path: ui.linked.path, hash: hash(ui.linked.text), baseline: ui.linked.baseline })); } catch { /* optional */ }
+}
+
+async function readFolderInput(input) {
+  const files = [];
+  for (const f of input.files) {
+    const rel = (f.webkitRelativePath || f.name).split('/').slice(1).join('/');
+    if (!rel.endsWith('.java') || /(^|\/)(build|bin|\.gradle|\.git)\//.test(rel) || f.size > 1024 * 1024) continue;
+    files.push({ path: rel, text: await f.text() });
+  }
+  const name = (input.files[0]?.webkitRelativePath || 'project').split('/')[0];
+  setProject({ root: name, name, files, skipped: [], truncated: false, isRobot: null });
+  location.hash = 'project';
 }
 
 async function copy(text, what) {
@@ -323,6 +412,11 @@ let downloads = null;
 window.claude?.use?.('downloads').then((d) => (downloads = d)).catch(() => {});
 async function saveFile(filename, data, type) {
   try {
+    if (bridge) {
+      const where = await bridge.saveFile(filename, data);
+      if (where) toast(`Saved ${where}`);
+      return;
+    }
     if (downloads) {
       await downloads.save({ filename, data });
       return toast(`Saved ${filename}`);
@@ -372,7 +466,7 @@ const actions = {
   addRow: (d) => commit((c) => {
     const n = (list, base) => { let i = list.length + 1; while (list.some((x) => x.name === `${base} ${i}`)) i++; return `${base} ${i}`; };
     if (d.tbl === 'commands') c.commands.push({ id: uid('k'), name: n(c.commands, 'Command'), expr: '', reqs: [] });
-    if (d.tbl === 'conditions') c.conditions.push({ id: uid('q'), name: camel(n(c.conditions, 'condition')), supplier: '' });
+    if (d.tbl === 'conditions') c.conditions.push({ id: uid('q'), name: camel(n(c.conditions, 'condition')), supplier: '', kind: 'supplier' });
     if (d.tbl === 'subsystems') c.subsystems.push({ id: uid('s'), name: n(c.subsystems, 'Subsystem'), var: '' });
     if (d.tbl === 'modes') { const nm = n(c.modes.list, 'Mode'); c.modes.list.push({ id: uid('m'), name: nm, const: nm.toUpperCase().replace(/\W+/g, '_') }); }
   }),
@@ -393,7 +487,13 @@ const actions = {
   copyCode: () => copy(generateJava(cfg), 'Code'),
   copyCheat: () => copy(cheatMarkdown(cfg), 'Cheat sheet'),
   saveCheat: () => saveFile('controls-cheat-sheet.html', cheatHtml(cfg), 'text/html'),
-  print: () => { try { window.print(); } catch { toast('Printing is blocked here; use Save printable page'); } },
+  print: () => {
+    if (ui.tab !== 'cheatsheet') location.hash = 'cheatsheet';
+    setTimeout(() => {
+      if (bridge) return bridge.print();
+      try { window.print(); } catch { toast('Printing is blocked here; use Save printable page'); }
+    }, 50);
+  },
   copyJson: () => copy(JSON.stringify(cfg, null, 2), 'JSON'),
   saveJson: () => saveFile('linkage-bindings.json', JSON.stringify(cfg, null, 2), 'application/json'),
   loadJson: () => loadConfig($('#jsonText').value),
@@ -409,6 +509,53 @@ const actions = {
     commit(() => (cfg = normalizeConfig(r.config)));
     toast(`Imported ${r.config.bindings.length} bindings`);
   },
+  openProject: async () => {
+    if (!bridge) return $('#dirPick')?.click();
+    try {
+      const r = await bridge.openProject();
+      if (r) { setProject(r); location.hash = 'project'; }
+    } catch (e) { toast(String(e.message || e)); }
+  },
+  rescan: async () => {
+    if (!bridge) return;
+    try {
+      const r = await bridge.rescan();
+      if (r) setProject(r, { reopen: true });
+      toast('Rescanned');
+    } catch (e) { toast(String(e.message || e)); }
+  },
+  closeProject: async () => { await bridge?.closeProject(); ui.project = null; ui.linked = null; render(); },
+  editContainer: () => { loadContainer(); location.hash = 'bindings'; },
+  pfilter: (d) => { ui.project.filter = d.f; render(); },
+  writeFile: () => {
+    if (!ui.linked) return;
+    let r;
+    try { r = applyToContainer(ui.linked.text, cfg); } catch (e) { return toast(String(e.message || e)); }
+    if (r.text === ui.linked.text) return toast('Nothing to write; the file already matches');
+    ui.pending = r.text;
+    ui.dialog = diffDialog(ui.linked.path, diffHunks(lineDiff(ui.linked.text, r.text)), r.notes);
+    render();
+    $('#dialog [data-act=confirmWrite]')?.focus();
+  },
+  confirmWrite: async () => {
+    try {
+      await bridge.writeFile(ui.linked.path, ui.pending);
+      ui.dialog = null;
+      const r = await bridge.rescan();
+      if (r) {
+        ui.project = { ...r, scan: scanProject(r.files), filter: ui.project.filter, desktop: true };
+        ui.linked = { path: ui.linked.path, text: r.files.find((f) => f.path === ui.linked.path)?.text ?? ui.pending, baseline: JSON.stringify(cfg) };
+      }
+      rememberLink();
+      render();
+      toast(`Wrote ${ui.linked.path.split('/').pop()} (old version backed up)`);
+    } catch (e) {
+      ui.dialog = null;
+      render();
+      toast(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    }
+  },
+  closeDialog: () => { ui.dialog = null; render(); },
   undo: () => restore(undo, redo),
   redo: () => restore(redo, undo),
 };
@@ -426,6 +573,7 @@ document.addEventListener('keydown', (e) => {
     actions[el.dataset.act]?.(el.dataset);
     return;
   }
+  if (e.key === 'Escape' && ui.dialog) return actions.closeDialog();
   const typing = /INPUT|TEXTAREA|SELECT/.test(e.target.tagName);
   if (!typing && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault();
@@ -437,6 +585,7 @@ const numOrNull = (v) => (v === '' || !isFinite(Number(v)) ? null : Number(v));
 document.addEventListener('change', (e) => {
   const t = e.target;
   const d = t.dataset;
+  if (t.id === 'dirPick') return readFolderInput(t);
   if (t.id === 'jsonFile' || t.id === 'javaFile') {
     const f = t.files?.[0];
     if (!f) return;
@@ -486,4 +635,9 @@ document.addEventListener('change', (e) => {
 
 window.addEventListener('hashchange', route);
 window.addEventListener('beforeprint', () => { if (ui.tab !== 'cheatsheet') location.hash = 'cheatsheet'; });
+if (bridge) {
+  bridge.onMenu((a) => actions[a]?.({}));
+  document.body.classList.add('desktop');
+}
 route();
+if (bridge) bridge.lastProject().then((r) => r && setProject(r, { reopen: true })).catch(() => {});
