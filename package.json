@@ -2,7 +2,7 @@
   "name": "linkage",
   "version": "0.2.0",
   "private": true,
-  "description": "Manage every Trigger binding in a WPILib robot project: controller pictures, code generation, cross-file checks.",
+  "description": "Controller bindings for WPILib command-based robots: click a controller picture, see conflicts, copy configureBindings().",
   "type": "module",
   "scripts": {
     "start": "node scripts/ensure-electron.mjs && electron .",

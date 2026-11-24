@@ -16,26 +16,21 @@
     <h1>Linkage</h1>
     <p>Controller bindings for WPILib command-based robots</p>
   </div>
-  <nav class="tabs" aria-label="Views">
-    <a href="#project" data-tab="project">Project</a>
-    <a href="#bindings" data-tab="bindings">Bindings</a>
-    <a href="#robot" data-tab="robot">Robot</a>
-    <a href="#code" data-tab="code">Code</a>
-    <a href="#checks" data-tab="checks">Checks <span id="checkCount" class="count"></span></a>
-    <a href="#cheatsheet" data-tab="cheatsheet">Cheat sheet</a>
-    <a href="#share" data-tab="share">Save &amp; import</a>
+  <nav class="tools" aria-label="Panels">
+    <button data-act="open" data-panel="code" aria-pressed="false">Code</button>
+    <button data-act="open" data-panel="cheat" aria-pressed="false">Cheat sheet</button>
+    <button data-act="open" data-panel="share" aria-pressed="false">Save &amp; import</button>
+    <button data-act="open" data-panel="setup" aria-pressed="false">Setup</button>
   </nav>
   <div class="hist">
     <button id="undoBtn" data-act="undo" title="Undo (Ctrl+Z)">Undo</button>
     <button id="redoBtn" data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
   </div>
 </header>
-<div id="projbar" class="projbar no-print" hidden></div>
 <main id="main" class="band"></main>
 <div id="dialog"></div>
-<input type="file" id="dirPick" webkitdirectory multiple hidden>
 <footer class="foot band no-print">
-  <p>Opens with an example robot (a 2024-style note game). Edit it, or clear it under Save &amp; import. Your work stays in this browser. Linkage is AI-generated; check the code before you deploy it.</p>
+  <p>Opens with an example robot (a 2024-style note game). Paste your own RobotContainer.java under Save &amp; import. Your work stays on this computer. Linkage is AI-generated; check the code before you deploy it.</p>
 </footer>
 <div id="toast" class="toast" role="status" hidden></div>
 <script type="module" src="src/app.js"></script>

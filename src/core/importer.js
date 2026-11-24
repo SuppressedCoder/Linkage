@@ -237,7 +237,7 @@ export function intConstants(...sources) {
 }
 
 /**
- * A statement reader shared by the RobotContainer importer and the project scanner.
+ * A statement reader used by the RobotContainer importer.
  * It adds conditions, modes, commands and bindings to `cfg` as it reads.
  * opts.ctrlByVar: controller variable -> controller in cfg. opts.reqsFor(expr): subsystem ids, optional.
  */

@@ -27,11 +27,15 @@ export function padSvg(c, marks, sel) {
   };
   const txt = (x, y, s, size = 13) => `<text x="${x}" y="${y}" font-size="${size}" text-anchor="middle" dominant-baseline="central">${s}</text>`;
 
-  // triggers and bumpers sit behind the body
-  hit('lt', `<path d="M86 34 L92 10 Q96 4 104 4 L132 4 Q140 4 142 10 L148 34 Z"/>`, txt(117, 19, ps ? 'L2' : 'LT'));
-  hit('rt', `<path d="M272 34 L278 10 Q280 4 288 4 L316 4 Q324 4 328 10 L334 34 Z"/>`, txt(303, 19, ps ? 'R2' : 'RT'));
-  hit('lb', `<rect x="66" y="34" width="96" height="20" rx="10"/>`, txt(114, 44, ps ? 'L1' : 'LB', 12));
-  hit('rb', `<rect x="258" y="34" width="96" height="20" rx="10"/>`, txt(306, 44, ps ? 'R1' : 'RB', 12));
+  // Triggers and bumpers sit behind the body. A bumper is a band that follows the shoulder's curve and
+  // tapers into the body at the outer end; its lower half is hidden under the body.
+  const mirror = (d) => d.replace(/(\d+(?:\.\d+)?) (\d+(?:\.\d+)?)/g, (_, x, y) => `${420 - Number(x)} ${y}`);
+  const TRIG = 'M88 34 L94 9 Q96 3 104 3 L134 3 Q141 3 143 9 L149 32 Z';
+  const BUMP = 'M34 102 C45 58 82 34 126 28 L157 25 Q169 24 169 36 L169 64 L40 126 Z';
+  hit('lt', `<path d="${TRIG}"/>`, txt(118, 17, ps ? 'L2' : 'LT'));
+  hit('rt', `<path d="${mirror(TRIG)}"/>`, txt(302, 17, ps ? 'R2' : 'RT'));
+  hit('lb', `<path d="${BUMP}"/>`, txt(116, 41, ps ? 'L1' : 'LB', 11));
+  hit('rb', `<path d="${mirror(BUMP)}"/>`, txt(304, 41, ps ? 'R1' : 'RB', 11));
   parts.push(`<path class="body" d="${BODY}"/><path class="sheen" d="M120 58C160 50 260 50 300 58C330 63 352 72 366 96C300 80 120 80 54 96C68 72 90 63 120 58Z"/>`);
   if (ps) parts.push(`<rect class="deco" x="178" y="58" width="64" height="44" rx="8"/>`);
   else parts.push(`<circle class="deco" cx="210" cy="78" r="13"/>`);

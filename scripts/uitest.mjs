@@ -1,19 +1,16 @@
-// Drives the real Electron app with Playwright on a copy of the test robot project.
-// Checks the project scan, cross-file warnings, editing, the write-back diff, the write itself,
-// the backup, and that a file changed on disk is never overwritten. Screenshots go to smoke/.
+// Drives the real Electron app with Playwright. Checks the one-screen layout (controller picture,
+// bindings, conflicts), editing a binding, the panels (code, cheat sheet, save & import, setup),
+// pasting a RobotContainer.java in, and that the page has no way to write files on its own.
+// Screenshots go to smoke/.
 import { _electron as electron } from 'playwright';
-import { cpSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const work = mkdtempSync(join(tmpdir(), 'linkage-ui-'));
-const project = join(work, 'robot');
-cpSync(join(root, 'test/fixtures/robot'), project, { recursive: true });
-writeFileSync(join(project, 'build.gradle'), '// test project\n');
-const userData = join(work, 'data');
-const containerPath = join(project, 'src/main/java/frc/robot/RobotContainer.java');
+const userData = join(mkdtempSync(join(tmpdir(), 'linkage-ui-')), 'data');
+const container = readFileSync(join(root, 'test/fixtures/RobotContainer.java'), 'utf8');
 mkdirSync(join(root, 'smoke'), { recursive: true });
 
 let failed = 0;
@@ -24,71 +21,67 @@ const ok = (cond, what) => {
 
 const app = await electron.launch({
   args: [root, ...(process.env.CI ? ['--no-sandbox'] : [])],
-  env: { ...process.env, LINKAGE_USER_DATA: userData, LINKAGE_OPEN: project },
+  env: { ...process.env, LINKAGE_USER_DATA: userData },
 });
 const page = await app.firstWindow();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 await page.setViewportSize({ width: 1400, height: 900 });
-await page.waitForSelector('.proj-head', { timeout: 15000 });
+await page.waitForSelector('.desk .pad');
 
-const figs = await page.$$eval('.figs b', (els) => els.map((e) => e.textContent));
-ok(figs[0] === '5' && figs[2] === '7', `project figures: ${figs.join(', ')} (5 files, 7 bindings)`);
-const checks = await page.textContent('.project');
-ok(/bound twice/.test(checks), 'cross-file double binding is reported');
-ok(/DriverControls\.java:13/.test(checks), 'findings point at file and line');
-ok(/Intake\.java binds 1 trigger itself/.test(checks), 'binding inside a subsystem is flagged');
-ok(await page.isVisible('#projbar >> text=Matches the file'), 'project bar says the editor matches the file');
-await page.screenshot({ path: join(root, 'smoke/ui-project.png'), fullPage: true });
+// One screen: no tabs, the picture and the editor side by side, conflicts listed.
+ok((await page.$$('.tabs, [data-tab]')).length === 0, 'there are no tabs');
+ok((await page.$$('.desk .pad')).length === 1, 'one controller picture on the screen');
+const box = async (s) => (await page.$(s)).boundingBox();
+const [pad, side] = [await box('.pad-card'), await box('.side')];
+ok(side.x > pad.x + pad.width - 1 && Math.abs(side.y - pad.y) < 4, 'controller and bindings sit side by side');
+ok(/Conflicts/.test(await page.textContent('.conflicts')) && (await page.$$('.conflicts .checks li')).length >= 1, 'conflicts are listed next to the editor');
+ok(await page.evaluate(() => !window.linkage.writeFile && !window.linkage.openProject), 'the page has no way to open a project or write files');
 
-await page.click('[data-act=pfilter][data-f=outside]');
-ok((await page.$$('.project section:last-child tbody tr')).length === 3, 'filter: 3 bindings outside RobotContainer');
-
-await page.click('[data-tab=bindings]');
-await page.waitForSelector('.pad');
-ok((await page.$$('g.in.ext')).length >= 1, 'inputs bound in other files are marked on the picture');
-ok(/in DriverControls\.java:12/.test(await page.textContent('.pads')), 'legend names the other file');
-
-await page.click('g[data-ctrl="operator"][data-in="east"]');
+// Switch controller, pick an input, bind a command.
+await page.click('[data-act=ctrl][data-ctrl=operator]');
+ok((await page.$$('g[data-ctrl="operator"]')).length > 0 && (await page.$$('g[data-ctrl="driver"]')).length === 0, 'the switch shows the operator controller');
+await page.click('g[data-ctrl="operator"][data-in="lsUp"]');
+ok(/Operator/.test(await page.textContent('.editor h2')), 'clicking the picture opens that input');
 await page.click('[data-act=addBinding]');
 const cmdValue = await page.$eval('select[data-k=cmd] option:nth-child(2)', (o) => o.value);
 await page.selectOption('select[data-k=cmd]', cmdValue);
-ok(await page.isVisible('#projbar >> text=Changes not written'), 'editing marks the file as not written');
-await page.screenshot({ path: join(root, 'smoke/ui-bindings.png') });
+ok(/^operator\.\w+\(.*\)\.onTrue\(/.test(await page.textContent('.editor pre.line')), 'the new binding shows its code');
+ok(await page.isVisible('g[data-ctrl="operator"][data-in="lsUp"].bound'), 'the bound input lights up');
+await page.click('[data-act=sel][data-ctrl=state]');
+ok(/Robot state/.test(await page.textContent('.editor h2')), 'other triggers can be picked too');
+await page.screenshot({ path: join(root, 'smoke/ui-main.png') });
 
-await page.click('[data-act=writeFile]');
-await page.waitForSelector('.modal pre.diff');
-const diff = await page.textContent('.modal pre.diff');
-ok(/\+ +operator\.b\(\)/.test(diff), 'diff shows the new binding');
-await page.screenshot({ path: join(root, 'smoke/ui-diff.png') });
-await page.click('[data-act=confirmWrite]');
-await page.waitForSelector('#projbar >> text=Matches the file', { timeout: 5000 });
-const written = readFileSync(containerPath, 'utf8');
-ok(/operator\.b\(\)\.(whileTrue|onTrue)\(/.test(written), 'the file on disk has the new binding');
-ok(/setDefaultCommand/.test(written) && /if \(Robot\.isSimulation\(\)\)/.test(written), 'statements Linkage cannot read are kept');
-ok(readdirSync(join(userData, 'backups')).length === 1, 'a backup was made');
+// Panels.
+await page.click('[data-panel=code]');
+ok(/private void configureBindings\(\)/.test(await page.textContent('#java')), 'code panel shows configureBindings()');
+await page.keyboard.press('Escape');
+ok((await page.$$('.modal')).length === 0, 'Escape closes a panel');
 
-// A file edited elsewhere after the scan is never overwritten.
-await page.click('g[data-ctrl="operator"][data-in="north"]');
-await page.click('[data-act=addBinding]');
-await page.selectOption('select[data-k=cmd] >> nth=-1', cmdValue);
-writeFileSync(containerPath, written + '\n// edited in VS Code\n');
-await page.click('[data-act=writeFile]');
-await page.click('[data-act=confirmWrite]');
-await page.waitForSelector('#toast:not([hidden])');
-ok(/changed on disk/.test(await page.textContent('#toast')), 'refuses to overwrite a file changed on disk');
-ok(readFileSync(containerPath, 'utf8').endsWith('// edited in VS Code\n'), 'the edited file is untouched');
+await page.click('[data-panel=share]');
+await page.fill('#javaText', container);
+await page.click('[data-act=import]');
+await page.waitForSelector('.import-result');
+ok(/bindings imported/.test(await page.textContent('.import-result')), 'pasting RobotContainer.java imports its bindings');
+await page.screenshot({ path: join(root, 'smoke/ui-import.png') });
+await page.click('[data-act=closePanel]');
+await page.click('[data-panel=code]');
+const java = await page.textContent('#java');
+ok(/setDefaultCommand/.test(java) && /if \(Robot\.isSimulation\(\)\)/.test(java), 'statements Linkage cannot read are kept in the copied code');
+await page.click('[data-act=closePanel]');
 
-await page.click('[data-tab=code]');
-ok(/private void configureBindings\(\)/.test(await page.textContent('#java')), 'code view works');
-await page.click('[data-tab=cheatsheet]');
+await page.click('[data-panel=setup]');
+ok((await page.$$('.panel-setup table')).length >= 4, 'setup panel lists commands, triggers, modes, subsystems and controllers');
+await page.click('[data-act=closePanel]');
+
+await page.click('[data-panel=cheat]');
 await page.waitForSelector('.sheet');
-ok((await page.$$('.sheet')).length >= 2, 'cheat sheet works');
-await page.screenshot({ path: join(root, 'smoke/ui-cheatsheet.png'), fullPage: true });
-
+ok((await page.$$('.sheet')).length >= 2, 'cheat sheet panel works');
 const tb = await page.textContent('.titleblock');
-ok(/Robot\s*robot/.test(tb) && /Driver station controls/.test(tb), 'cheat sheet has a title block naming the project');
+ok(/Driver station controls/.test(tb) && /Ports/.test(tb), 'cheat sheet has a title block');
+await page.screenshot({ path: join(root, 'smoke/ui-cheatsheet.png') });
+
 const fonts = await page.evaluate(async () => {
   const faces = [...(await document.fonts.load('600 20px "IBM Plex Sans Condensed"')), ...(await document.fonts.load('500 14px "IBM Plex Mono"'))];
   return faces.filter((f) => f.status === 'loaded').map((f) => f.family);
