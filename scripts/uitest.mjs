@@ -34,8 +34,11 @@ await page.waitForSelector('.desk .pad');
 ok((await page.$$('.tabs, [data-tab]')).length === 0, 'there are no tabs');
 ok((await page.$$('.desk .pad')).length === 1, 'one controller picture on the screen');
 const box = async (s) => (await page.$(s)).boundingBox();
-const [pad, side] = [await box('.pad-card'), await box('.side')];
-ok(side.x > pad.x + pad.width - 1 && Math.abs(side.y - pad.y) < 4, 'controller and bindings sit side by side');
+const [stage, side] = [await box('.stage'), await box('.side')];
+ok(side.x > stage.x + stage.width - 1 && Math.abs(side.y - stage.y) < 4, 'the controller stage and the inspector sit side by side');
+ok((await page.$$('.map .cr')).length >= 3 && (await page.$$('.map .leader path')).length >= 3, 'bound inputs are called out on the controller map');
+await page.click('.map .cr[data-in=lt]');
+ok(/Driver LT/.test(await page.textContent('.editor h2')) && (await page.$$('.map .leader.sel')).length === 1, 'clicking a callout opens its input and marks its leader');
 ok(/Conflicts/.test(await page.textContent('.conflicts')) && (await page.$$('.conflicts .checks li')).length >= 1, 'conflicts are listed next to the editor');
 ok(await page.evaluate(() => !window.linkage.writeFile && !window.linkage.openProject), 'the page has no way to open a project or write files');
 
@@ -49,7 +52,7 @@ const cmdValue = await page.$eval('select[data-k=cmd] option:nth-child(2)', (o) 
 await page.selectOption('select[data-k=cmd]', cmdValue);
 ok(/^operator\.\w+\(.*\)\.onTrue\(/.test(await page.textContent('.editor pre.line')), 'the new binding shows its code');
 ok(await page.isVisible('g[data-ctrl="operator"][data-in="lsUp"].bound'), 'the bound input lights up');
-ok((await page.$$('.legend .lg')).length > 0 && /Bound on Operator/.test(await page.textContent('.pad-card')), 'the bound inputs are listed under the picture');
+ok(/Left stick/.test(await page.textContent('.map .callouts')) && (await page.$$('.map .cr[data-in=lsUp]')).length === 1, 'the new binding is called out on the map');
 await page.click('[data-act=addBinding]');
 ok((await page.$$('.binding')).length === 2 && (await page.$$('.binding.open')).length === 1, 'a new binding opens and the other collapses');
 await page.click('.binding:not(.open) [data-act=toggle]');
@@ -110,16 +113,16 @@ await page.click('[data-act=closePanel]');
 
 await page.click('[data-panel=cheat]');
 await page.waitForSelector('.sheet');
-ok((await page.$$('.sheet')).length >= 2, 'cheat sheet panel works');
+ok((await page.$$('.sheet')).length >= 2 && (await page.$$('.sheet .map')).length === 2 && (await page.$$('.sheet .map .cr')).length === 2, 'cheat sheet panel shows each controller map with its callouts');
 const tb = await page.textContent('.titleblock');
 ok(/Driver station controls/.test(tb) && /Ports/.test(tb), 'cheat sheet has a title block');
 await page.screenshot({ path: join(root, 'smoke/ui-cheatsheet.png') });
 
 const fonts = await page.evaluate(async () => {
-  const faces = [...(await document.fonts.load('600 20px "IBM Plex Sans"')), ...(await document.fonts.load('500 14px "IBM Plex Mono"'))];
+  const faces = [...(await document.fonts.load('600 20px "Atkinson Hyperlegible Next"')), ...(await document.fonts.load('500 14px "Atkinson Hyperlegible Mono"'))];
   return faces.filter((f) => f.status === 'loaded').map((f) => f.family);
 });
-ok(fonts.some((f) => /^IBM Plex Sans$/.test(f)) && fonts.some((f) => /Plex Mono/.test(f)), `bundled fonts load offline (${fonts.join(', ')})`);
+ok(fonts.some((f) => /^Atkinson Hyperlegible Next$/.test(f)) && fonts.some((f) => /Hyperlegible Mono/.test(f)), `bundled fonts load offline (${fonts.join(', ')})`);
 ok(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 await app.close();
 console.log(failed ? `${failed} check(s) failed` : 'all checks passed');

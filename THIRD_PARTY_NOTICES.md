@@ -1,7 +1,7 @@
 # Third-party notices
 
-Linkage bundles these fonts in `assets/fonts/` (Latin subsets, from Google Fonts). Each is licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
+Linkage bundles these fonts in `assets/fonts/` (Latin subsets, variable weight, from Google Fonts via Fontsource). Each is licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
 
-- **IBM Plex Sans** and **IBM Plex Mono**: Copyright © 2017 IBM Corp. with Reserved Font Name "Plex" (https://github.com/IBM/plex).
+- **Atkinson Hyperlegible Next** and **Atkinson Hyperlegible Mono**: Copyright © 2020-2024 The Atkinson Hyperlegible Next Project Authors and The Atkinson Hyperlegible Mono Project Authors, made for the Braille Institute (https://github.com/googlefonts/atkinson-hyperlegible-next, https://github.com/googlefonts/atkinson-hyperlegible-next-mono).
 
 The desktop app is built on Electron (MIT) and Chromium; their licenses ship with the installers (`LICENSE.electron.txt`, `LICENSES.chromium.html`).
