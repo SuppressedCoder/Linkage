@@ -106,6 +106,11 @@ const mid = (curve, t, d) => { const p = at(curve, t); return [p.x + p.nx * d, p
  * @param sel selected input id or null
  */
 export function padSvg(c, marks, sel) {
+  return `<svg class="pad" viewBox="0 20 ${W} ${H - 20}" role="group" aria-label="${esc(c.name)} controller">${drawing(c, marks, sel)}</svg>`;
+}
+
+/** The controller drawing's shapes, in the 420 by 284 drawing space. */
+function drawing(c, marks, sel) {
   const T = TYPES[c.type] || TYPES.xbox;
   const ps = c.type !== 'xbox';
   const parts = [];
@@ -173,5 +178,160 @@ export function padSvg(c, marks, sel) {
   stick(T.ls, 'ls', ['lsUp', 'lsDown', 'lsLeft', 'lsRight']);
   stick(T.rs, 'rs', ['rsUp', 'rsDown', 'rsLeft', 'rsRight']);
 
-  return `<svg class="pad" viewBox="0 20 ${W} ${H - 20}" role="group" aria-label="${esc(c.name)} controller">${parts.join('')}</svg>`;
+  return parts.join('');
 }
+
+// ---------- The controller map ----------
+// The drawing with every bound input called out, the way a drive team's taped-on controller map is:
+// a leader line from the input to a label saying what it does. Inputs are called out in clusters
+// (face buttons, D-pad, each stick, each shoulder input), each on a fixed side, so no line crosses
+// a button and every input is always in the same place. Back and Start are called out above.
+
+const COL = 236; // label column width
+const GAP = 30; // from a label column to the drawing
+const LH = 22; // one line of a label
+const HEAD = 22; // a cluster's heading ("D-pad")
+const MIN_TOP = 64; // room above the drawing for Back and Start
+
+/** Where each cluster sits on this controller type, in drawing space. */
+function clusters(type) {
+  const T = TYPES[type] || TYPES.xbox;
+  const S = T.shoulder;
+  // the leader meets a shoulder input near its outer end, clear of its printed name
+  const lt = mid(S, T.trigger[0] + (T.trigger[1] - T.trigger[0]) * 0.82, 19);
+  const lb = mid(S, T.bumper[0] + (T.bumper[1] - T.bumper[0]) * 0.74, 5);
+  const [fx, fy] = T.face;
+  const [dx, dy] = T.dpad;
+  const ring = ([x, y], r) => ({ x, y, r });
+  return [
+    { id: 'lt', side: 'l', ids: ['lt'], at: lt },
+    { id: 'lb', side: 'l', ids: ['lb'], at: lb },
+    { id: 'ls', side: 'l', ids: ['ls', 'lsUp', 'lsDown', 'lsLeft', 'lsRight'], ring: ring(T.ls, 35), head: 'Left stick' },
+    { id: 'dpad', side: 'l', ids: ['povUp', 'povUpRight', 'povRight', 'povDownRight', 'povDown', 'povDownLeft', 'povLeft', 'povUpLeft'], ring: { x: dx, y: dy, r: 39, box: true, rx: type === 'xbox' ? 20 : 39 }, head: 'D-pad' },
+    { id: 'rt', side: 'r', ids: ['rt'], at: mx(lt) },
+    { id: 'rb', side: 'r', ids: ['rb'], at: mx(lb) },
+    { id: 'face', side: 'r', ids: ['north', 'east', 'west', 'south'], ring: ring([fx, fy], 37) },
+    { id: 'rs', side: 'r', ids: ['rs', 'rsUp', 'rsDown', 'rsLeft', 'rsRight'], ring: ring(T.rs, 35), head: 'Right stick' },
+    { id: 'back', side: 't', ids: ['back'], at: T.back },
+    { id: 'start', side: 't', ids: ['start'], at: T.start },
+  ];
+}
+
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * Lays out the callouts. Pure: no DOM, so it is tested directly.
+ * @param type controller type
+ * @param lines Map inputId -> [{ verb, text, note }] (only inputs with something to say)
+ * @param label (inputId) -> the input's name on this controller
+ * @returns { width, height, dx, dy, top, callouts: [{ id, side, x, y, w, h, head, rows, path, mark }] }
+ *          in map space; the drawing is translated by (dx, dy).
+ */
+export function layoutMap(type, lines, label) {
+  const found = clusters(type).map((k) => {
+    const rows = k.ids.filter((id) => lines.get(id)?.length).map((id) => {
+      const name = label(id);
+      const short = k.head && name.toLowerCase().startsWith(k.head.toLowerCase() + ' ') ? cap(name.slice(k.head.length + 1)) : name;
+      return { input: id, name: short, full: name, lines: lines.get(id) };
+    });
+    if (!rows.length) return null;
+    const h = (k.head ? HEAD + 2 : 0) + rows.reduce((n, r) => n + r.lines.length * LH, 0) + (rows.length - 1) * 2;
+    return { ...k, rows, h };
+  }).filter(Boolean);
+
+  const tops = found.filter((k) => k.side === 't');
+  const top = Math.max(MIN_TOP, ...tops.map((k) => k.h + 22));
+  const dx = COL + GAP;
+  const dy = top - 20;
+  const width = 2 * (COL + GAP) + W;
+  const P = ([x, y]) => [x + dx, y + dy];
+  const r1 = (n) => Math.round(n * 10) / 10;
+  const d = (pts) => 'M' + pts.map(([x, y]) => `${r1(x)} ${r1(y)}`).join(' L');
+  const out = [];
+
+  for (const k of tops) {
+    const [ax, ay] = P(k.at);
+    const left = k.id === 'back';
+    const lx = dx + W / 2 + (left ? -14 : 14);
+    const y = top - 8 - k.h;
+    out.push({
+      ...k, x: left ? lx + 6 - COL : lx - 6, y, w: COL,
+      path: d([[ax, ay], [lx, dy + 46], [lx, top - 6]]), mark: { x: ax, y: ay },
+    });
+  }
+  for (const side of ['l', 'r']) {
+    const list = found.filter((k) => k.side === side).map((k) => {
+      const [ax, ay] = P(k.ring ? [k.ring.x, k.ring.y] : k.at);
+      return { ...k, ax, ay };
+    }).sort((a, b) => a.ay - b.ay);
+    let prev = 2 - 10;
+    for (const k of list) {
+      const cy = Math.max(k.ay, prev + 10 + k.h / 2);
+      prev = cy + k.h / 2;
+      const left = side === 'l';
+      const from = k.ring ? (left ? k.ax - k.ring.r : k.ax + k.ring.r) : k.ax;
+      const knee = left ? dx - 4 : dx + W + 4;
+      const bend = left ? knee - 12 : knee + 12;
+      const edge = left ? COL + 4 : width - COL - 4;
+      out.push({
+        ...k, x: left ? 0 : width - COL, y: cy - k.h / 2, w: COL,
+        path: d([[from, k.ay], [knee, k.ay], [bend, cy], [edge, cy]]),
+        mark: k.ring ? null : { x: k.ax, y: k.ay },
+        ring: k.ring ? { ...k.ring, x: k.ax, y: k.ay } : null,
+      });
+    }
+  }
+  const height = Math.ceil(Math.max(dy + H, ...out.map((k) => k.y + k.h)) + 4);
+  return { width, height, dx, dy, top, callouts: out };
+}
+
+/**
+ * The controller map: the drawing plus a callout for every input in `lines`.
+ * @param c controller {id, name, type}
+ * @param marks Map inputId -> 'bound' | 'other'
+ * @param sel selected input id or null
+ * @param lines Map inputId -> [{ verb, text, note }]
+ * @param opts { pick: whether callouts select their input when clicked }
+ */
+export function mapSvg(c, marks, sel, lines, opts = {}) {
+  const L = layoutMap(c.type, lines, (id) => inputLabel(c.type, id));
+  const pick = opts.pick !== false;
+  const marksSvg = [];
+  const labels = [];
+  for (const k of L.callouts) {
+    const on = k.ids.includes(sel);
+    const ring = k.ring ? (k.ring.box
+      ? `<rect class="ring" x="${r(k.ring.x - k.ring.r)}" y="${r(k.ring.y - k.ring.r)}" width="${2 * k.ring.r}" height="${2 * k.ring.r}" rx="${k.ring.rx}"/>`
+      : `<circle class="ring" cx="${r(k.ring.x)}" cy="${r(k.ring.y)}" r="${k.ring.r}"/>`) : '';
+    const dot = k.mark ? `<circle class="dot" cx="${r(k.mark.x)}" cy="${r(k.mark.y)}" r="2.6"/>` : '';
+    marksSvg.push(`<g class="leader${on ? ' sel' : ''}"><path d="${k.path}"/>${ring}${dot}</g>`);
+    const row = (w) => {
+      const tip = `${w.full}: ${w.lines.map((l) => `${l.verb} ${l.text}${l.note ? ` (${l.note})` : ''}`).join('; ')}`;
+      const body = `<b>${esc(w.name)}</b><span class="acts">${w.lines.map((l) => `<span class="ln"><i>${esc(l.verb)}</i> ${esc(l.text)}${l.note ? ` <em>${esc(l.note)}</em>` : ''}</span>`).join('')}</span>`;
+      return pick
+        ? `<button class="cr${sel === w.input ? ' on' : ''}" data-act="sel" data-ctrl="${esc(c.id)}" data-in="${w.input}" aria-pressed="${sel === w.input}" title="${esc(tip)}">${body}</button>`
+        : `<div class="cr" title="${esc(tip)}">${body}</div>`;
+    };
+    labels.push(`<foreignObject x="${r(k.x)}" y="${r(k.y)}" width="${k.w}" height="${r(k.h)}"><div xmlns="http://www.w3.org/1999/xhtml" class="co ${k.side}${k.id === 'back' ? ' l' : ''}">${k.head ? `<p class="ch">${esc(k.head)}</p>` : ''}${k.rows.map(row).join('')}</div></foreignObject>`);
+  }
+  // Where the map is too narrow for its label columns, the page switches the viewBox to the drawing alone
+  // (fitMap in app.js), so the picture stays big and the bound list under it takes over.
+  const full = `0 0 ${L.width} ${L.height}`;
+  const crop = `${L.dx} ${L.top} ${W} ${H - 20}`;
+  return `<div class="map"><svg class="pad" viewBox="${full}" data-full="${full}" data-crop="${crop}" role="group" aria-label="${esc(c.name)} controller map">
+    <g transform="translate(${L.dx} ${L.dy})">${drawing(c, marks, sel)}</g>
+    <g class="callouts">${marksSvg.join('')}${labels.join('')}</g></svg></div>`;
+}
+
+const r = (n) => Math.round(n * 10) / 10;
+
+/** Styles for a map on a page without styles.css (the saved printable cheat sheet). */
+export const MAP_PRINT_CSS = `.map svg{width:100%;height:auto;display:block}
+.pad .body{fill:#fff;stroke:#8f99a3;stroke-width:1.4}.pad .deco{fill:none;stroke:#b9c0c8;stroke-width:1.2}
+.pad .well{fill:#eef1f3;stroke:#b9c0c8}.pad .hub{fill:#eef1f3;stroke:#8f99a3}
+.pad .in>title+*{fill:#eef1f3;stroke:#8f99a3;stroke-width:1.1}.pad .in text{fill:#56606a;font-weight:600}.pad .in .glyph{fill:none;stroke:#56606a;stroke-width:1.8}
+.pad .in.bound>title+*{fill:var(--team);stroke:var(--team)}.pad .in.bound text{fill:#fff}.pad .in.bound .glyph{stroke:#fff}
+.leader path,.leader .ring{fill:none;stroke:#7b8590;stroke-width:1}.leader .ring{stroke-dasharray:3 3}.leader .dot{fill:#fff;stroke:#7b8590;stroke-width:1.2}
+.co{font-size:13px;line-height:22px;color:#1d2226}.co .ch{margin:0;font-weight:700;color:var(--team)}.cr{display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 8px;max-width:100%;padding:0 6px}.co .ch{padding:0 6px}
+.co{display:grid;justify-items:start;align-content:start;gap:2px}.co.l{justify-items:end}
+.cr b{font-weight:700;color:var(--team);white-space:nowrap}.co .ch~.cr b{color:#56606a;font-weight:500}.ln{display:block;height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ln i{font-style:normal;color:#56606a}.ln em{font-style:normal;color:#56606a;font-size:12px}`;

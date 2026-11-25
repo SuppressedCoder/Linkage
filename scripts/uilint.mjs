@@ -6,7 +6,7 @@
 //   - a button's label doesn't start with a verb (navigation and pickers excepted)
 //   - a severity colour doesn't match its level (red = not finished, amber = conflict, grey = note),
 //     or a group holds findings of another level
-//   - a font other than IBM Plex Sans, Plex Mono outside code and input names, uppercase text,
+//   - a font other than Atkinson Hyperlegible Next, its Mono outside code and input names, uppercase text,
 //     or a corner radius other than 6px / 8px / pill
 //   - a click target smaller than 24 by 24 px, or a controller input that can't be clicked anywhere
 //   - anything axe-core reports against WCAG 2.2 A and AA (contrast, names, roles)
@@ -98,13 +98,13 @@ function audit() {
       if (cs.textOverflow !== 'ellipsis') out.push(`text is cut off: ${say(el)}`);
       else if (!el.title) out.push(`text is cut off with an ellipsis but has no tooltip: ${say(el)}`);
     }
-    // Plain type: IBM Plex Sans, Plex Mono only for code and input names, no uppercase.
+    // Plain type: Atkinson Hyperlegible Next, its Mono only for code and input names, no uppercase.
     const ownText = [...el.childNodes].some((c) => c.nodeType === 3 && c.textContent.trim());
     if (ownText || /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(el.tagName)) {
       const family = cs.fontFamily.split(',')[0].replace(/["']/g, '').trim();
-      if (family === 'IBM Plex Mono') {
+      if (family === 'Atkinson Hyperlegible Mono') {
         if (!el.closest('code, pre, .mono, .lg b, .others .chip, .sheet td.inp, .tb')) out.push(`code font on text that isn't code: ${say(el)}`);
-      } else if (family !== 'IBM Plex Sans') out.push(`font "${family}" instead of IBM Plex Sans: ${say(el)}`);
+      } else if (family !== 'Atkinson Hyperlegible Next') out.push(`font "${family}" instead of Atkinson Hyperlegible Next: ${say(el)}`);
       if (cs.textTransform === 'uppercase') out.push(`uppercase text: ${say(el)}`);
     }
     // Controls: 6px corners (8px for card-like rows, round for pills and dots), and big enough to hit.
@@ -120,7 +120,7 @@ function audit() {
   // are named by what they show instead.
   const VERBS = /^(Add|Open|Copy|Save|Load|Clear|Import|Print|Pick|Fix|Delete|Remove|Expand|Collapse|Show|Close|Undo|Redo)\b/;
   for (const el of scope.querySelectorAll('button, label.file')) {
-    if (!shown(el) || el.matches('.seg, .chip, .lg, .bhead, [data-panel]')) continue;
+    if (!shown(el) || el.matches('.seg, .chip, .lg, .cr, .bhead, [data-panel]')) continue;
     const label = (el.getAttribute('aria-label') || el.textContent).trim().replace(/^\+\s*/, '');
     if (!label) out.push(`button with no name: ${say(el)}`);
     else if (!VERBS.test(label)) out.push(`button label doesn't start with a verb: ${say(el)}`);

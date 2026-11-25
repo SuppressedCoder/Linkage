@@ -8,7 +8,7 @@ import { generateJava, context, bindingStatement, conditionVar, conditionInit, i
 import { check, where } from './core/checks.js';
 import { cheatSheet, cheatMarkdown, cheatHtml } from './core/cheatsheet.js';
 import { importJava } from './core/importer.js';
-import { padSvg } from './ui/pad.js';
+import { mapSvg, MAP_PRINT_CSS } from './ui/pad.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (s) => document.querySelector(s);
@@ -95,6 +95,36 @@ function legend(c) {
 
 const teamOf = (id) => (id === 'operator' ? 'red' : 'blue');
 
+/** What each input on this controller does, one line per binding, for the callouts on the map. */
+function linesFor(c) {
+  const m = new Map();
+  for (const d of INPUTS) {
+    const bs = cfg.bindings.filter((b) => b.ctrl === c.id && b.input === d.id && visible(b));
+    if (bs.length) m.set(d.id, bs.map((b) => ({ verb: bindingType(b.type).verb, text: cmdOf(b.cmd)?.name || 'No command yet', note: b.mode && ui.view === 'all' ? modeName(b.mode) || '' : '' })));
+  }
+  return m;
+}
+
+/** The same lines from a cheat sheet row: every-mode bindings once, the others tagged with their mode. */
+function cheatLines(s) {
+  const m = new Map();
+  for (const r of s.rows) {
+    const seen = new Map();
+    r.cells.forEach((cell, i) => {
+      for (const e of cell) {
+        const key = `${e.verb}\u0000${e.action}\u0000${e.when}`;
+        if (!seen.has(key)) seen.set(key, { verb: e.verb, text: e.action, note: e.when, modes: [] });
+        seen.get(key).modes.push(s.modes[i]);
+      }
+    });
+    m.set(r.input, [...seen.values()].map((l) => ({
+      verb: l.verb, text: l.text,
+      note: [l.modes.length < s.modes.length ? l.modes.join(', ') : '', l.note].filter(Boolean).join(', '),
+    })));
+  }
+  return m;
+}
+
 /** The controller picture, with a switch between controllers and the other triggers under it. */
 function padCard() {
   const c = ctrlOf(ui.ctrl) || cfg.controllers[0];
@@ -104,8 +134,8 @@ function padCard() {
   const sw = cfg.controllers.map((x) => `<button class="seg${x.id === c.id ? ' on' : ''}" style="--team:var(--${teamOf(x.id)})" data-act="ctrl" data-ctrl="${esc(x.id)}" aria-pressed="${x.id === c.id}">${esc(x.name)} <small>${count(x.id)}</small></button>`).join('');
   return `<section class="card pad-card" style="--team:var(--${teamOf(c.id)})">
     <header class="pad-head"><div class="segs" role="group" aria-label="Controller">${sw}</div><span class="muted">port ${c.port} · ${esc(CONTROLLER_TYPES[c.type].name)} · <code>${esc(c.var)}</code></span></header>
-    ${padSvg(c, marksFor(c), sel)}
-    ${legend(c)}
+    ${mapSvg(c, marksFor(c), sel, linesFor(c))}
+    <div class="legend-wrap">${legend(c)}</div>
     ${stateRow()}
   </section>`;
 }
@@ -245,8 +275,8 @@ function editor(problems) {
 function viewMain(problems) {
   const chips = [['all', 'All modes'], ...cfg.modes.list.map((m) => [m.id, `${m.name} mode`])]
     .map(([id, n]) => `<button class="chip${ui.view === id ? ' on' : ''}" data-act="view" data-mode="${esc(id)}">${esc(n)}</button>`).join('');
-  return `<div class="toolbar"><span class="lbl" id="showLbl">Show bindings for</span><div class="chips" role="group" aria-labelledby="showLbl">${chips}</div></div>
-    <div class="desk">${padCard()}<div class="side">${editor(problems)}${conflicts(problems)}</div></div>`;
+  return `<div class="desk"><div class="stage"><div class="toolbar"><span class="lbl" id="showLbl">Show bindings for</span><div class="chips" role="group" aria-labelledby="showLbl">${chips}</div></div>
+    ${padCard()}</div><div class="side">${editor(problems)}${conflicts(problems)}</div></div>`;
 }
 
 // ---------- Panels ----------
@@ -300,11 +330,16 @@ function viewCheat() {
   return `<p class="muted no-print">What every input does, per mode. Every-mode bindings repeat in each column.</p>
     <div class="cheat">${sheets.map((s) => `<section class="card sheet" style="--team:var(--${teamOf(s.id)})">
       <h2>${esc(s.title)}</h2>
-      ${s.controller ? padSvg(s.controller, marksFor(s.controller), null) : ''}
+      ${s.controller ? mapSvg(s.controller, cheatMarks(s), null, cheatLines(s), { pick: false }) : ''}
       <div class="scroll"><table><thead><tr><th>Input</th>${s.modes.map((m) => `<th>${esc(m)}</th>`).join('')}</tr></thead>
       <tbody>${s.rows.map((r) => `<tr><td class="inp">${esc(r.label)}</td>${r.cells.map((c) => `<td>${cell(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
     </section>`).join('') || '<p class="muted">No bindings yet.</p>'}</div>
     ${sheets.length ? titleBlock() : ''}`;
+}
+
+/** On the cheat sheet every bound input is lit, whatever mode the screen is showing. */
+function cheatMarks(s) {
+  return new Map(s.rows.map((r) => [r.input, 'bound']));
 }
 
 /** The drawing's title block, under the cheat sheet on screen and in print. */
@@ -364,9 +399,29 @@ function render() {
   const active = document.activeElement?.id;
   $('#main').innerHTML = viewMain(problems);
   $('#dialog').innerHTML = panel();
+  fitMaps();
   document.body.classList.toggle('has-panel', !!ui.panel);
   if (active && document.getElementById(active)) document.getElementById(active).focus();
   document.title = warnN ? `Linkage (${warnN})` : 'Linkage';
+}
+
+/**
+ * A controller map shows its label columns only when they are readable: below 78% scale it crops to the
+ * drawing (the list under the picture, or the cheat sheet's table, says the rest). Runs on every render and
+ * whenever a map changes size; the observer fires before paint, so the full map never flashes.
+ */
+const mapSizes = new ResizeObserver((entries) => entries.forEach((e) => fitMap(e.target)));
+function fitMap(el) {
+  const svg = el.querySelector('svg');
+  if (!svg) return;
+  const fullW = Number(svg.dataset.full.split(' ')[2]);
+  const crop = el.clientWidth > 0 && el.clientWidth / fullW < 0.78;
+  el.classList.toggle('cropped', crop);
+  svg.setAttribute('viewBox', crop ? svg.dataset.crop : svg.dataset.full);
+}
+function fitMaps() {
+  mapSizes.disconnect();
+  for (const el of document.querySelectorAll('.map')) { fitMap(el); mapSizes.observe(el); }
 }
 
 function openPanel(name) {
@@ -495,7 +550,11 @@ const actions = {
   }),
   copyCode: () => copy(generateJava(cfg), 'Code'),
   copyCheat: () => copy(cheatMarkdown(cfg), 'Cheat sheet'),
-  saveCheat: () => saveFile('controls-cheat-sheet.html', cheatHtml(cfg), 'text/html'),
+  saveCheat: () => saveFile('controls-cheat-sheet.html', cheatHtml(cfg, 'Robot', {
+    css: MAP_PRINT_CSS,
+    pictures: Object.fromEntries(cheatSheet(cfg).filter((s) => s.controller && s.rows.length)
+      .map((s) => [s.id, `<div style="--team:${s.id === 'operator' ? '#b72424' : '#1a52bd'}">${mapSvg(s.controller, cheatMarks(s), null, cheatLines(s), { pick: false })}</div>`])),
+  }), 'text/html'),
   print: () => {
     if (ui.panel !== 'cheat') openPanel('cheat');
     setTimeout(() => {

@@ -30,9 +30,9 @@ The same page also runs in a browser (`npm run serve`, then http://localhost:800
 
 ### One screen
 
-The controller picture is on the left and the bindings for the input you click are on the right, with the conflicts under them. Switch between the driver and operator controllers above the picture. **Code**, **Cheat sheet**, **Save & import** and **Setup** (commands, other triggers, modes, subsystems, controllers) open as panels from the header.
+The controller map is on the left and the bindings for the input you click are on the right, with the conflicts under them. Switch between the driver and operator controllers above the map. **Code**, **Cheat sheet**, **Save & import** and **Setup** (commands, other triggers, modes, subsystems, controllers) open as panels from the header.
 
-- **Controller pictures.** Each controller is drawn with every input clickable: face buttons, bumpers, triggers, Back/Start, stick clicks, all eight D-pad directions, and the four directions of each stick (the ring around a stick). Bound inputs light up in the controller's alliance colour.
+- **Controller maps.** Each controller is drawn with every input clickable: face buttons, bumpers, triggers, Back/Start, stick clicks, all eight D-pad directions, and the four directions of each stick (the ring around a stick). Bound inputs light up in the controller's alliance colour, and each one is called out with a leader line to what it does, like the controller map a drive team tapes to the driver station. Click the input or its label to edit it. On a narrow window the map shows the drawing alone with the list underneath. The cheat sheet uses the same map.
 - **Bindings.** For the selected input, add as many bindings as you like, each with:
   - a binding type: `onTrue`, `onFalse`, `whileTrue`, `whileFalse`, `toggleOnTrue`, `toggleOnFalse`
   - a command from your command list (name plus the Java that builds it, such as `intake.runIntake()` or `new ScoreAmp(arm, shooter)`)
@@ -59,7 +59,7 @@ npm start            # run the app
 ```
 index.html, styles.css   the page (the same in the app and the browser)
 src/core/                pure modules, no DOM: model, codegen, checks, cheat sheet, importer
-src/ui/                  controller pictures
+src/ui/                  controller drawings and the controller map
 src/app.js               the UI: state, views, events
 electron/                main process and preload (Save dialogs and printing)
 assets/fonts/            bundled fonts, so nothing loads from the internet
