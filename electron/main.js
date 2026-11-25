@@ -63,7 +63,7 @@ function createWindow() {
     minWidth: 720,
     minHeight: 500,
     title: 'Linkage',
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0e2744' : '#f4f1e8',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#111418' : '#f5f6f8',
     webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: false },
   });
   // Links open in the browser, never inside the app.

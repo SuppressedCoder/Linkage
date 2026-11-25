@@ -267,7 +267,7 @@ function titleBlock() {
   const date = new Date().toISOString().slice(0, 10);
   const ctrls = cfg.controllers.map((c) => `${c.name} ${c.port}`).join(' · ');
   return `<footer class="titleblock" aria-label="Title block">
-    <div>Drawing<b>Driver station controls</b></div><div>Ports<b>${esc(ctrls)}</b></div><div>Date<b>${esc(date)}</b></div></footer>`;
+    <div>Sheet<b>Driver station controls</b></div><div>Ports<b>${esc(ctrls)}</b></div><div>Date<b>${esc(date)}</b></div></footer>`;
 }
 
 function viewShare() {
