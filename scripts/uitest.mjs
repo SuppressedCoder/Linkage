@@ -49,6 +49,18 @@ const cmdValue = await page.$eval('select[data-k=cmd] option:nth-child(2)', (o) 
 await page.selectOption('select[data-k=cmd]', cmdValue);
 ok(/^operator\.\w+\(.*\)\.onTrue\(/.test(await page.textContent('.editor pre.line')), 'the new binding shows its code');
 ok(await page.isVisible('g[data-ctrl="operator"][data-in="lsUp"].bound'), 'the bound input lights up');
+ok((await page.$$('.legend .lg')).length > 0 && /Bound on Operator/.test(await page.textContent('.pad-card')), 'the bound inputs are listed under the picture');
+await page.click('[data-act=addBinding]');
+ok((await page.$$('.binding')).length === 2 && (await page.$$('.binding.open')).length === 1, 'a new binding opens and the other collapses');
+await page.click('.binding:not(.open) [data-act=toggle]');
+ok((await page.$$('.binding.open')).length === 2, 'clicking a collapsed binding opens it');
+await page.click('[data-act=toggleAll]');
+ok((await page.$$('.binding.open')).length === 0 && (await page.$$('.binding .bhead')).length === 2, 'collapse all leaves one line per binding');
+await page.click('.binding:last-child [data-act=toggle]');
+await page.click('.binding.open [data-act=delBinding]');
+ok((await page.$$('.binding')).length === 1, 'a binding is deleted from inside it');
+await page.click('g[data-ctrl="operator"][data-in="rsDown"]');
+ok(/does nothing yet/.test(await page.textContent('.editor .empty')) && (await page.$$('.editor .empty [data-act=addBinding]')).length === 1, 'an unbound input says so and offers to add a binding');
 await page.click('[data-act=sel][data-ctrl=state]');
 ok(/Robot state/.test(await page.textContent('.editor h2')), 'other triggers can be picked too');
 await page.screenshot({ path: join(root, 'smoke/ui-main.png') });

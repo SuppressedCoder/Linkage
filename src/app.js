@@ -2,7 +2,7 @@
 // Every change goes through commit(), which keeps undo history and autosaves.
 import {
   BINDING_TYPES, CONTROLLER_TYPES, INPUTS, exampleConfig, blankConfig, normalizeConfig, inputLabel,
-  takesThreshold, inputMethod, DEFAULT_THRESHOLD, uid, camel,
+  takesThreshold, inputMethod, DEFAULT_THRESHOLD, uid, camel, bindingType,
 } from './core/model.js';
 import { generateJava, context, bindingStatement, conditionVar, conditionInit, index } from './core/codegen.js';
 import { check, where } from './core/checks.js';
@@ -21,7 +21,7 @@ try {
 } catch {
   cfg = exampleConfig();
 }
-const ui = { panel: null, ctrl: 'driver', sel: { ctrl: 'driver', input: 'rb' }, view: 'all', newCmd: null, importResult: null, importText: '', toast: '' };
+const ui = { panel: null, ctrl: 'driver', sel: { ctrl: 'driver', input: 'rb' }, view: 'all', newCmd: null, open: new Set(), importResult: null, importText: '', toast: '' };
 const bridge = window.linkage?.desktop ? window.linkage : null;
 const undo = [];
 const redo = [];
@@ -71,21 +71,26 @@ function marksFor(c) {
   return m;
 }
 
+/** One line of plain language for a binding: what you do, what runs, and its qualifiers. */
+function actionLine(b) {
+  const cmd = cmdOf(b.cmd);
+  const n = b.conds.length + (b.debounce > 0 ? 1 : 0);
+  const meta = [
+    n ? `<span class="meta">+${n} ${n === 1 ? 'condition' : 'conditions'}</span>` : '',
+    b.mode ? `<span class="tag">${esc(modeName(b.mode) || '')}</span>` : '',
+  ].join('');
+  return `<span class="what"><span class="verb">${esc(bindingType(b.type).verb)}</span> ${cmd ? esc(cmd.name) : '<span class="none">No command yet</span>'}</span>${meta}`;
+}
+
 function legend(c) {
   const rows = INPUTS.map((d) => {
     const bs = cfg.bindings.filter((b) => b.ctrl === c.id && b.input === d.id && visible(b));
     if (!bs.length) return '';
     const sel = ui.sel.ctrl === c.id && ui.sel.input === d.id;
-    return `<li><button class="lg${sel ? ' on' : ''}" data-act="sel" data-ctrl="${esc(c.id)}" data-in="${d.id}"><b>${esc(inputLabel(c.type, d.id))}</b><span>${bs
-      .map((b) => `${esc(BINDING_TYPES.find((t) => t.id === b.type).verb)} ${esc(cmdOf(b.cmd)?.name || 'no command')}${condHint(b)}${b.mode && ui.view === 'all' ? ` <em>${esc(modeName(b.mode) || '')}</em>` : ''}`)
-      .join('<br>')}</span></button></li>`;
+    return `<li><button class="lg${sel ? ' on' : ''}" data-act="sel" data-ctrl="${esc(c.id)}" data-in="${d.id}" aria-pressed="${sel}"><b>${esc(inputLabel(c.type, d.id))}</b><span class="acts">${bs.map((b) => `<span class="act">${actionLine(b)}</span>`).join('')}</span></button></li>`;
   }).join('');
-  return rows ? `<ul class="legend">${rows}</ul>` : '<p class="muted">Nothing bound yet. Click a button on the picture.</p>';
-}
-
-function condHint(b) {
-  const n = b.conds.length + (b.debounce > 0 ? 1 : 0);
-  return n ? ` <em>+${n} ${n === 1 ? 'condition' : 'conditions'}</em>` : '';
+  const head = `<h3 class="legend-head">Bound on ${esc(c.name)}</h3>`;
+  return rows ? `${head}<ul class="legend">${rows}</ul>` : `${head}<p class="muted">Nothing bound yet. Click an input on the picture to start.</p>`;
 }
 
 const teamOf = (id) => (id === 'operator' ? 'red' : 'blue');
@@ -140,13 +145,16 @@ function refOptions(current) {
   return h;
 }
 
+/** A binding, collapsed to one line until you open it to edit. */
 function bindingCard(b, cx, problems) {
   const c = ctrlOf(b.ctrl);
   const cmd = cmdOf(b.cmd);
   const th = b.ctrl !== 'state' && c && takesThreshold(c.type, b.input);
-  const mine = problems.filter((p) => p.bindings.includes(b.id));
+  const mine = [...new Map(problems.filter((p) => p.bindings.includes(b.id)).map((p) => [p.text, p])).values()];
+  const warned = mine.some((p) => p.level !== 'info');
+  const open = ui.open.has(b.id);
   const code = bindingStatement(cx, b, '');
-  const typeOpts = BINDING_TYPES.map((t) => `<option value="${t.id}"${t.id === b.type ? ' selected' : ''}>${t.id}  (${t.verb.toLowerCase()})</option>`).join('');
+  const typeOpts = BINDING_TYPES.map((t) => `<option value="${t.id}"${t.id === b.type ? ' selected' : ''}>${esc(t.verb)}  (${t.id})</option>`).join('');
   const cmdOpts = `<option value="">Pick a command</option>${cfg.commands.map((k) => `<option value="${esc(k.id)}"${k.id === b.cmd ? ' selected' : ''}>${esc(k.name)}</option>`).join('')}<option value="__new">New command…</option>`;
   const modeOpts = `<option value="">Every mode</option>${cfg.modes.list.map((m) => `<option value="${esc(m.id)}"${m.id === b.mode ? ' selected' : ''}>${esc(m.name)} mode</option>`).join('')}`;
   const conds = b.conds.map((q, i) => `<div class="cond">
@@ -159,22 +167,28 @@ function bindingCard(b, cx, problems) {
       <label>Name<input id="nc-name-${b.id}" data-tbl="commands" data-id="${esc(cmd.id)}" data-k="name" value="${esc(cmd.name)}"></label>
       <label>Java expression<input id="nc-expr-${b.id}" class="mono" data-tbl="commands" data-id="${esc(cmd.id)}" data-k="expr" value="${esc(cmd.expr)}" placeholder="intake.runIntake()"></label>
       <div class="reqs"><span class="muted">Requires</span>${reqBoxes(cmd)}</div></div>` : '';
-  return `<article class="binding${mine.some((p) => p.level !== 'info') ? ' warned' : ''}">
+  const head = `<button class="bhead" id="bh-${b.id}" data-act="toggle" data-b="${b.id}" aria-expanded="${open}" aria-controls="bb-${b.id}">
+      <svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>
+      ${actionLine(b)}${warned ? '<span class="flag" title="Has a conflict">!</span>' : ''}</button>`;
+  if (!open) return `<article class="binding${warned ? ' warned' : ''}">${head}</article>`;
+  return `<article class="binding open${warned ? ' warned' : ''}">${head}
+    <div class="bbody" id="bb-${b.id}">
     <div class="row">
       <label>When<select id="type-${b.id}" data-b="${b.id}" data-k="type">${typeOpts}</select></label>
-      <label>Mode<select id="mode-${b.id}" data-b="${b.id}" data-k="mode">${modeOpts}</select></label>
-      <button class="icon del" data-act="delBinding" data-b="${b.id}" aria-label="Delete binding" title="Delete binding">×</button>
+      <label>Command<select id="cmd-${b.id}" data-b="${b.id}" data-k="cmd">${cmdOpts}</select></label>
     </div>
-    <label>Command<select id="cmd-${b.id}" data-b="${b.id}" data-k="cmd">${cmdOpts}</select></label>
     ${newCmd}
     <div class="row">
+      <label>Mode<select id="mode-${b.id}" data-b="${b.id}" data-k="mode">${modeOpts}</select></label>
       ${th ? `<label>Threshold<input id="th-${b.id}" type="number" step="0.05" min="0" max="1" data-b="${b.id}" data-k="threshold" value="${b.threshold ?? ''}" placeholder="${DEFAULT_THRESHOLD}"></label>` : ''}
       <label>Debounce (s)<input id="db-${b.id}" type="number" step="0.05" min="0" data-b="${b.id}" data-k="debounce" value="${b.debounce ?? ''}" placeholder="none"></label>
     </div>
-    <div class="conds"><span class="lbl">Conditions</span>${conds || '<span class="muted">Always, when the input fires.</span>'}
-      <button class="ghost" data-act="addCond" data-b="${b.id}">+ Condition</button></div>
-    ${code ? `<pre class="line"><code>${esc(code)}</code></pre>` : '<p class="muted">Pick a command to see the code.</p>'}
+    <div class="conds"><span class="lbl">Only when</span>${conds || '<p class="muted">No conditions. It runs whenever the input fires.</p>'}
+      <button class="ghost small" data-act="addCond" data-b="${b.id}">+ Add condition</button></div>
     ${mine.map((p) => `<p class="warn ${p.level}">${esc(p.text)}</p>`).join('')}
+    ${code ? `<pre class="line"><code>${esc(code)}</code></pre>` : '<p class="muted">Pick a command to see the code.</p>'}
+    <div class="bfoot"><button class="ghost small danger" data-act="delBinding" data-b="${b.id}">Delete binding</button></div>
+    </div>
   </article>`;
 }
 
@@ -192,17 +206,23 @@ function editor(problems) {
   const title = isState ? `Robot state: ${q.name}` : `${c.name} ${inputLabel(c.type, input)}`;
   const base = isState ? `${conditionVar(q)} = ${conditionInit(q)}` : `${c.var}.${inputMethod(c.type, input, takesThreshold(c.type, input) ? DEFAULT_THRESHOLD : null)}`;
   const list = cfg.bindings.filter((b) => b.ctrl === ctrl && b.input === input);
+  const name = isState ? q.name : inputLabel(c.type, input);
+  const body = list.length
+    ? `<div class="bindings">${list.map((b) => bindingCard(b, cx, problems)).join('')}</div>
+      <button class="ghost add" data-act="addBinding">+ Add another binding</button>`
+    : `<div class="empty"><p><b>${esc(name)} does nothing yet.</b></p><p class="muted">Add a binding to run a command when it is pressed, held or released.</p>
+      <button class="primary" data-act="addBinding">+ Add binding</button></div>`;
   return `<aside class="editor card" style="--team:var(--${ctrl === 'operator' ? 'red' : 'blue'})">
     <header><h2>${esc(title)}</h2><code class="muted">${esc(base)}</code></header>
-    ${list.map((b) => bindingCard(b, cx, problems)).join('') || '<p class="muted">No bindings on this input yet.</p>'}
-    <button class="primary" data-act="addBinding">+ Add binding</button>
+    ${list.length ? `<div class="sec sub"><h3>${list.length} ${list.length === 1 ? 'binding' : 'bindings'}</h3>${list.length > 1 ? `<button class="link" data-act="toggleAll">${list.every((b) => ui.open.has(b.id)) ? 'Collapse all' : 'Expand all'}</button>` : ''}</div>` : ''}
+    ${body}
   </aside>`;
 }
 
 function viewMain(problems) {
   const chips = [['all', 'All modes'], ...cfg.modes.list.map((m) => [m.id, `${m.name} mode`])]
     .map(([id, n]) => `<button class="chip${ui.view === id ? ' on' : ''}" data-act="view" data-mode="${esc(id)}">${esc(n)}</button>`).join('');
-  return `<div class="toolbar"><div class="chips" role="group" aria-label="Show bindings for">${chips}</div></div>
+  return `<div class="toolbar"><span class="lbl" id="showLbl">Show bindings for</span><div class="chips" role="group" aria-labelledby="showLbl">${chips}</div></div>
     <div class="desk">${padCard()}<div class="side">${editor(problems)}${conflicts(problems)}</div></div>`;
 }
 
@@ -373,23 +393,38 @@ function loadConfig(text) {
   }
 }
 
+/** An input with a single binding opens it; with several, they start collapsed so you can scan them. */
+function autoOpen() {
+  const list = cfg.bindings.filter((b) => b.ctrl === ui.sel.ctrl && b.input === ui.sel.input);
+  return new Set(list.length === 1 ? [list[0].id] : []);
+}
+
 function pickFirst() {
   const b = cfg.bindings[0];
   ui.sel = b ? { ctrl: b.ctrl, input: b.input } : { ctrl: cfg.controllers[0]?.id, input: 'south' };
+  ui.open = autoOpen();
   render();
 }
 
 const actions = {
-  sel: (d) => { ui.sel = { ctrl: d.ctrl, input: d.in }; if (d.ctrl !== 'state') ui.ctrl = d.ctrl; ui.newCmd = null; render(); },
+  sel: (d) => { ui.sel = { ctrl: d.ctrl, input: d.in }; if (d.ctrl !== 'state') ui.ctrl = d.ctrl; ui.newCmd = null; ui.open = autoOpen(); render(); },
+  toggle: (d) => { if (!ui.open.delete(d.b)) ui.open.add(d.b); render(); },
+  toggleAll: () => {
+    const ids = cfg.bindings.filter((b) => b.ctrl === ui.sel.ctrl && b.input === ui.sel.input).map((b) => b.id);
+    ui.open = ids.every((id) => ui.open.has(id)) ? new Set() : new Set(ids);
+    render();
+  },
   goto: (d) => actions.sel(d),
-  ctrl: (d) => { ui.ctrl = d.ctrl; if (ui.sel.ctrl !== 'state') ui.sel = { ctrl: d.ctrl, input: cfg.bindings.find((b) => b.ctrl === d.ctrl)?.input || 'south' }; render(); },
+  ctrl: (d) => { ui.ctrl = d.ctrl; if (ui.sel.ctrl !== 'state') { ui.sel = { ctrl: d.ctrl, input: cfg.bindings.find((b) => b.ctrl === d.ctrl)?.input || 'south' }; ui.open = autoOpen(); } render(); },
   open: (d) => openPanel(d.panel),
   openShare: () => openPanel('share'),
   closePanel: () => { const was = ui.panel; ui.panel = null; render(); document.querySelector(`[data-panel=${was}]`)?.focus(); },
   view: (d) => { ui.view = d.mode; render(); },
   addBinding: () => commit((c) => {
     const { ctrl, input } = ui.sel;
-    c.bindings.push({ id: uid('b'), ctrl, input, type: ctrl === 'state' ? 'onTrue' : 'onTrue', cmd: '', mode: ui.view === 'all' ? null : ui.view, conds: [], debounce: null, threshold: null });
+    const id = uid('b');
+    ui.open = new Set([id]);
+    c.bindings.push({ id, ctrl, input, type: ctrl === 'state' ? 'onTrue' : 'onTrue', cmd: '', mode: ui.view === 'all' ? null : ui.view, conds: [], debounce: null, threshold: null });
   }),
   delBinding: (d) => commit((c) => (c.bindings = c.bindings.filter((b) => b.id !== d.b))),
   addCond: (d) => commit((c) => {

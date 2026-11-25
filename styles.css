@@ -7,7 +7,11 @@
            (and input names in lists, so they line up).
    SHAPE   6px corners on controls, 8px on cards, 1px borders, one soft shadow on cards and panels.
    LAYOUT  one screen, side by side: the controller picture left, its bindings and the conflicts right (sticky).
-           Code, cheat sheet, save & import and setup open as panels from the header. Stacks below 900px. */
+           Code, cheat sheet, save & import and setup open as panels from the header. Stacks below 900px.
+   RULES   left-align everything you read in a list, so the eye scans one edge. Show a summary first and the
+           detail on demand: a binding is one line ("Hold  Run intake  [Intake]") until you open it.
+           An empty state says what is missing and offers the one action that fixes it. Name actions with
+           verbs ("Add binding", "Delete binding"); destructive ones sit at the end, away from the summary. */
 
 :root {
   color-scheme: light dark;
@@ -92,7 +96,7 @@ label { display: grid; gap: 4px; font-size: 13px; font-weight: 500; color: var(-
 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: var(--shadow); }
 .sec { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
-.toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
 .toolbar p { margin: 0; }
 
 /* the one screen */
@@ -132,24 +136,52 @@ label { display: grid; gap: 4px; font-size: 13px; font-weight: 500; color: var(-
 .pad .in.sel > title + * { stroke: var(--ink); stroke-width: 3; }
 .pad .in:focus-visible > title + * { stroke: var(--focus); stroke-width: 3; }
 
-.legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 2px 12px; }
-.lg { width: 100%; background: transparent; border: 0; border-radius: 6px; padding: 7px 10px; min-height: 36px; display: grid; grid-template-columns: 6.2em 1fr; gap: 10px; text-align: left; align-items: baseline; font: 400 14px/1.4 var(--sans); }
-.lg b { font: 600 12.5px/1.4 var(--mono); color: var(--team); }
-.lg em { color: var(--muted); font-style: normal; font-size: 12.5px; }
+.legend-head { margin: 4px 0 6px; }
+.legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; border-top: 1px solid var(--line); padding-top: 4px; }
+.lg { width: 100%; background: transparent; border: 0; border-radius: 6px; padding: 6px 10px; min-height: 36px; display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 12px; text-align: left; align-items: start; justify-content: stretch; font: 400 14px/1.45 var(--sans); }
+.lg b { font: 600 12.5px/1.6 var(--mono); color: var(--team); }
+.lg .acts { display: grid; gap: 2px; }
+.act, .bhead { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.verb { color: var(--muted); }
+.none { color: var(--muted); font-style: italic; }
+.meta { flex: none; color: var(--muted); font-size: 12.5px; }
+.tag { flex: none; font: 500 12px/1.5 var(--sans); color: var(--muted); border: 1px solid var(--line2); border-radius: 6px; padding: 0 6px; }
 .lg:hover { background: var(--hover); }
 .lg.on { background: color-mix(in srgb, var(--team) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--team) 35%, transparent); }
 
-.editor > header { margin-bottom: 14px; display: grid; gap: 2px; }
+.editor > header { margin-bottom: 16px; display: grid; gap: 2px; }
 .editor > header h2 { font-size: 20px; display: flex; align-items: center; gap: 10px; }
 .editor > header h2::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--team); }
-.binding { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 12px; display: grid; gap: 12px; background: var(--surface); }
-.binding.warned { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); background: color-mix(in srgb, var(--warn) 4%, var(--surface)); }
-.binding .del { margin-left: auto; align-self: start; }
-.binding .row > label:first-child { flex: 2 1 170px; }
+.sec.sub { margin-bottom: 8px; }
+.sec.sub h3 { margin: 0; font-size: 13px; font-weight: 500; color: var(--muted); }
+.link { min-height: 28px; padding: 2px 6px; border: 0; background: transparent; color: var(--muted); font-size: 13px; }
+.link:hover { color: var(--ink); background: var(--hover); }
+.bindings { display: grid; gap: 8px; margin-bottom: 12px; }
+.binding { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.binding.open { border-color: var(--line2); }
+.binding.warned { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.bhead { width: 100%; border: 0; background: transparent; border-radius: 8px; min-height: 44px; padding: 8px 12px 8px 10px; font: 400 14.5px/1.4 var(--sans); align-items: center; text-align: left; }
+.binding.open .bhead { border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; }
+.bhead .verb { font-weight: 500; }
+.chev { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .12s; }
+.bhead[aria-expanded=true] .chev { transform: rotate(90deg); }
+.flag { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font: 700 11px var(--sans); color: var(--surface); background: var(--warn); }
+.bbody { padding: 14px 14px 12px; display: grid; gap: 14px; }
+.bbody .row > label:first-child { flex: 1 1 150px; }
+.bbody .row > label:nth-child(2) { flex: 2 1 200px; }
+.bfoot { display: flex; justify-content: flex-end; margin-top: -4px; }
+.small { min-height: 30px; padding: 2px 10px; font-size: 13px; }
+.danger:hover { color: var(--error); border-color: color-mix(in srgb, var(--error) 40%, var(--line2)); }
+.add { width: 100%; justify-content: center; border-style: dashed; color: var(--muted); }
+.add:hover { color: var(--ink); }
+.empty { border: 1px dashed var(--line2); border-radius: 8px; padding: 20px; text-align: center; }
+.empty p { margin: 0 0 4px; }
+.empty .primary { margin-top: 12px; }
 .cond { display: grid; grid-template-columns: 76px auto minmax(0, 1fr) 32px; gap: 6px; align-items: center; margin-bottom: 6px; }
 .neg { display: flex; align-items: center; gap: 5px; font: 14px var(--sans); color: var(--ink); }
 .conds .lbl { display: block; margin-bottom: 6px; }
-.conds .ghost { min-height: 30px; padding: 2px 10px; font-size: 13px; }
+.conds > p { margin: 0 0 8px; font-size: 14px; }
 .newcmd { display: grid; gap: 8px; padding: 12px; border: 1px dashed var(--line2); border-radius: 6px; }
 pre.line { margin: 0; padding: 8px 10px; background: var(--codebg); border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .warn { margin: 0; font-size: 13.5px; color: var(--warn); }
@@ -221,8 +253,10 @@ pre.code { background: var(--codebg); color: var(--ink); padding: 16px; overflow
   .stack tr { display: grid; padding-block: 8px; border-bottom: 1px solid var(--line); }
   .stack td { border: 0; padding: 3px 0; }
   .cond { grid-template-columns: 70px auto minmax(0, 1fr) 32px; }
+  .what { white-space: normal; }
+  .act { flex-wrap: wrap; column-gap: 6px; }
 }
-@media (prefers-reduced-motion: reduce) { .pad .in > * { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .pad .in > *, .chev { transition: none; } }
 @media print {
   :root { color-scheme: light; }
   .top, #main, .no-print, .foot, .toast { display: none !important; }
