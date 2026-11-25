@@ -29,7 +29,7 @@ export function cheatSheet(cfg) {
   const sheets = [];
   const entry = (b, ctrlId) => ({
     verb: ctrlId ? bindingType(b.type).verb : STATE_VERB[b.type],
-    action: ix.cmd[b.cmd]?.name || '(no command)',
+    action: ix.cmd[b.cmd]?.name || 'No command yet',
     when: condText(ix, b, ctrlId),
     all: !b.mode,
   });

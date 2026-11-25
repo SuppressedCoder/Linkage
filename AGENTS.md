@@ -7,6 +7,7 @@ Linkage is an Electron desktop app (plain JavaScript modules, no bundler) for th
 ```
 npm test        # unit tests for src/core; must pass before you finish
 npm run uitest  # Playwright drives the real app (needs a display; in CI it runs under xvfb); add a check when you add UI behavior and look at smoke/ui-*.png
+npm run uilint  # UI cleanliness: every state and panel, light and dark, desktop and phone; fails on overlapping or cut-off text, labels without a verb, wrong severity colours, stray fonts or corners, small targets and WCAG (axe) issues. Must pass; look at smoke/lint/*.png
 npm start       # run the app
 npm run dist    # installers in dist/
 ```

@@ -11,6 +11,7 @@ jobs:
       - run: npm test
       - run: sudo apt-get update && sudo apt-get install -y xvfb
       - run: xvfb-run -a npm run uitest
+      - run: xvfb-run -a npm run uilint
       - uses: actions/upload-artifact@v4
         if: always()
         with:

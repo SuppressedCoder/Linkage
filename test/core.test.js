@@ -77,9 +77,18 @@ test('checks find double bindings, subsystem fights and unused commands', () => 
   cfg.bindings.push(binding({ type: 'onTrue' }), binding({ type: 'whileTrue', cmd: 'k2' }));
   cfg.bindings.push(binding({ ctrl: 'operator', input: 'rb', type: 'whileTrue' }));
   const w = check(cfg);
-  assert.ok(w.some((x) => /bound twice/.test(x.text)));
+  assert.ok(w.some((x) => /bound twice/.test(x.text) && x.kind === "conflict"));
   assert.ok(w.some((x) => /both require Thing/.test(x.text)));
-  assert.ok(w.some((x) => /"Unused" is not bound/.test(x.text)));
+  assert.ok(w.some((x) => /"Unused" is not bound/.test(x.text) && x.kind === "note"));
+});
+
+test('an unfinished binding is reported as unfinished, not as a conflict, with a fix to pick a command', () => {
+  const cfg = withCmd(blankConfig());
+  cfg.bindings.push(binding({ cmd: '' }));
+  const w = check(cfg).filter((x) => x.bindings.length);
+  assert.equal(w.length, 1);
+  assert.equal(w[0].kind, 'unfinished');
+  assert.equal(w[0].fix.field, 'cmd');
 });
 
 test('checks accept bindings split by mode, by negated condition, or across the D-pad', () => {

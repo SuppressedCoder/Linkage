@@ -79,7 +79,7 @@ function actionLine(b) {
     n ? `<span class="meta">+${n} ${n === 1 ? 'condition' : 'conditions'}</span>` : '',
     b.mode ? `<span class="tag">${esc(modeName(b.mode) || '')}</span>` : '',
   ].join('');
-  return `<span class="what"><span class="verb">${esc(bindingType(b.type).verb)}</span> ${cmd ? esc(cmd.name) : '<span class="none">No command yet</span>'}</span>${meta}`;
+  return `<span class="what" title="${esc(`${bindingType(b.type).verb} ${cmd ? cmd.name : 'No command yet'}`)}"><span class="verb">${esc(bindingType(b.type).verb)}</span> ${cmd ? esc(cmd.name) : '<span class="none">No command yet</span>'}</span>${meta}`;
 }
 
 function legend(c) {
@@ -87,7 +87,7 @@ function legend(c) {
     const bs = cfg.bindings.filter((b) => b.ctrl === c.id && b.input === d.id && visible(b));
     if (!bs.length) return '';
     const sel = ui.sel.ctrl === c.id && ui.sel.input === d.id;
-    return `<li><button class="lg${sel ? ' on' : ''}" data-act="sel" data-ctrl="${esc(c.id)}" data-in="${d.id}" aria-pressed="${sel}"><b>${esc(inputLabel(c.type, d.id))}</b><span class="acts">${bs.map((b) => `<span class="act">${actionLine(b)}</span>`).join('')}</span></button></li>`;
+    return `<li><button class="lg${sel ? ' on' : ''}" data-act="sel" data-ctrl="${esc(c.id)}" data-in="${d.id}" aria-pressed="${sel}"><b>${esc(inputLabel(c.type, d.id))}</b><span class="acts">${bs.map((b) => `<span class="lg-line">${actionLine(b)}</span>`).join('')}</span></button></li>`;
   }).join('');
   const head = `<h3 class="legend-head">Bound on ${esc(c.name)}</h3>`;
   return rows ? `${head}<ul class="legend">${rows}</ul>` : `${head}<p class="muted">Nothing bound yet. Click an input on the picture to start.</p>`;
@@ -120,19 +120,41 @@ function stateRow() {
     <div class="chips">${items || '<span class="muted">None yet. Add them under Setup.</span>'}</div></div>`;
 }
 
-/** Every finding, with a button to open the input it is about. */
-function conflicts(problems) {
-  const byId = Object.fromEntries(cfg.bindings.map((b) => [b.id, b]));
+/** A button that takes you to the place a finding is about and, where it can, to the field that fixes it. */
+function fixButton(p, b, label) {
   const ix = index(cfg);
-  const item = (p) => {
-    const b = byId[p.bindings[0]];
-    return `<li class="${p.level}"><p>${esc(p.text)}</p>${b ? `<button class="ghost" data-act="goto" data-ctrl="${esc(b.ctrl)}" data-in="${esc(b.input)}">${esc(where(ix, b))}</button>` : ''}</li>`;
-  };
-  const hard = problems.filter((p) => p.level !== 'info');
-  const notes = problems.filter((p) => p.level === 'info');
-  return `<section class="card conflicts"><header class="sec"><h2>Conflicts <span class="count">${hard.length || ''}</span></h2></header>
-    ${hard.length ? `<ul class="checks">${hard.map(item).join('')}</ul>` : '<p class="ok">No conflicts.</p>'}
-    ${notes.length ? `<details><summary>${notes.length} ${notes.length === 1 ? 'note' : 'notes'}</summary><ul class="checks">${notes.map(item).join('')}</ul></details>` : ''}
+  const f = p.fix || {};
+  if (f.panel) return `<button class="ghost small" data-act="open" data-panel="${esc(f.panel)}">${esc(f.label)}</button>`;
+  if (!b) return '';
+  const both = p.bindings.filter((id) => { const x = cfg.bindings.find((y) => y.id === id); return x && x.ctrl === b.ctrl && x.input === b.input; });
+  return `<button class="ghost small" data-act="fix" data-b="${esc(b.id)}" data-bs="${esc(both.join(','))}" data-field="${esc(f.field || '')}">${esc(label || f.label || `Open ${where(ix, b)}`)}</button>`;
+}
+
+function finding(p) {
+  const ix = index(cfg);
+  const bs = p.bindings.map((id) => cfg.bindings.find((b) => b.id === id)).filter(Boolean);
+  const sameInput = bs.length > 1 && bs.every((b) => b.ctrl === bs[0].ctrl && b.input === bs[0].input);
+  const btns = p.fix?.panel || bs.length < 2 || sameInput
+    ? fixButton(p, bs[0])
+    : bs.map((b) => fixButton(p, b, `Open ${where(ix, b)}`)).join('');
+  return `<li class="${p.level}"><div class="msg"><p class="t">${esc(p.title)}</p>${p.detail ? `<p class="d">${esc(p.detail)}</p>` : ''}</div>${btns ? `<div class="fixes">${btns}</div>` : ''}</li>`;
+}
+
+/** Everything the checks found, in three groups: unfinished bindings, conflicts, and notes. */
+function conflicts(problems) {
+  const group = (kind) => problems.filter((p) => p.kind === kind);
+  const unfinished = group('unfinished');
+  const fights = group('conflict');
+  const notes = group('note');
+  const block = (list, title, level, hint) => (list.length ? `<div class="group ${level}">
+      <h3>${title} <span class="count">${list.length}</span></h3><p class="hint">${hint}</p>
+      <ul class="checks">${list.map(finding).join('')}</ul></div>` : '');
+  const clean = !unfinished.length && !fights.length;
+  return `<section class="card conflicts"><header class="sec"><h2>Checks</h2></header>
+    ${clean ? '<p class="ok">Every binding is finished and nothing conflicts.</p>' : ''}
+    ${block(unfinished, 'Not finished', 'g-error', 'These are left out of the code until you finish them.')}
+    ${block(fights, 'Conflicts', 'g-warn', 'These bindings can fight each other on the robot.')}
+    ${notes.length ? `<details class="group g-info"><summary>${notes.length} ${notes.length === 1 ? 'note' : 'notes'}</summary><ul class="checks">${notes.map(finding).join('')}</ul></details>` : ''}
   </section>`;
 }
 
@@ -151,7 +173,8 @@ function bindingCard(b, cx, problems) {
   const cmd = cmdOf(b.cmd);
   const th = b.ctrl !== 'state' && c && takesThreshold(c.type, b.input);
   const mine = [...new Map(problems.filter((p) => p.bindings.includes(b.id)).map((p) => [p.text, p])).values()];
-  const warned = mine.some((p) => p.level !== 'info');
+  const worst = mine.some((p) => p.level === 'error') ? 'error' : mine.some((p) => p.level === 'warn') ? 'warn' : '';
+  const warned = !!worst;
   const open = ui.open.has(b.id);
   const code = bindingStatement(cx, b, '');
   const typeOpts = BINDING_TYPES.map((t) => `<option value="${t.id}"${t.id === b.type ? ' selected' : ''}>${esc(t.verb)}  (${t.id})</option>`).join('');
@@ -169,9 +192,9 @@ function bindingCard(b, cx, problems) {
       <div class="reqs"><span class="muted">Requires</span>${reqBoxes(cmd)}</div></div>` : '';
   const head = `<button class="bhead" id="bh-${b.id}" data-act="toggle" data-b="${b.id}" aria-expanded="${open}" aria-controls="bb-${b.id}">
       <svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>
-      ${actionLine(b)}${warned ? '<span class="flag" title="Has a conflict">!</span>' : ''}</button>`;
-  if (!open) return `<article class="binding${warned ? ' warned' : ''}">${head}</article>`;
-  return `<article class="binding open${warned ? ' warned' : ''}">${head}
+      ${actionLine(b)}${worst ? `<span class="flag ${worst}" title="${worst === 'error' ? 'Not finished' : 'Has a conflict'}">!</span>` : ''}</button>`;
+  if (!open) return `<article class="binding${worst ? ` is-${worst}` : ''}">${head}</article>`;
+  return `<article class="binding open${worst ? ` is-${worst}` : ''}">${head}
     <div class="bbody" id="bb-${b.id}">
     <div class="row">
       <label>When<select id="type-${b.id}" data-b="${b.id}" data-k="type">${typeOpts}</select></label>
@@ -185,8 +208,8 @@ function bindingCard(b, cx, problems) {
     </div>
     <div class="conds"><span class="lbl">Only when</span>${conds || '<p class="muted">No conditions. It runs whenever the input fires.</p>'}
       <button class="ghost small" data-act="addCond" data-b="${b.id}">+ Add condition</button></div>
-    ${mine.map((p) => `<p class="warn ${p.level}">${esc(p.text)}</p>`).join('')}
-    ${code ? `<pre class="line"><code>${esc(code)}</code></pre>` : '<p class="muted">Pick a command to see the code.</p>'}
+    ${mine.length ? `<ul class="checks in-card">${mine.map((p) => `<li class="${p.level}"><div class="msg"><p class="t">${esc(p.title)}</p>${p.detail ? `<p class="d">${esc(p.detail)}</p>` : ''}</div></li>`).join('')}</ul>` : ''}
+    ${code ? `<pre class="line"><code>${esc(code)}</code></pre>` : ''}
     <div class="bfoot"><button class="ghost small danger" data-act="delBinding" data-b="${b.id}">Delete binding</button></div>
     </div>
   </article>`;
@@ -212,7 +235,7 @@ function editor(problems) {
       <button class="ghost add" data-act="addBinding">+ Add another binding</button>`
     : `<div class="empty"><p><b>${esc(name)} does nothing yet.</b></p><p class="muted">Add a binding to run a command when it is pressed, held or released.</p>
       <button class="primary" data-act="addBinding">+ Add binding</button></div>`;
-  return `<aside class="editor card" style="--team:var(--${ctrl === 'operator' ? 'red' : 'blue'})">
+  return `<aside class="editor card" style="--team:var(--${isState ? 'muted' : teamOf(ctrl)})">
     <header><h2>${esc(title)}</h2><code class="muted">${esc(base)}</code></header>
     ${list.length ? `<div class="sec sub"><h3>${list.length} ${list.length === 1 ? 'binding' : 'bindings'}</h3>${list.length > 1 ? `<button class="link" data-act="toggleAll">${list.every((b) => ui.open.has(b.id)) ? 'Collapse all' : 'Expand all'}</button>` : ''}</div>` : ''}
     ${body}
@@ -228,36 +251,38 @@ function viewMain(problems) {
 
 // ---------- Panels ----------
 
+const FIELD_NAMES = { name: 'name', expr: 'Java expression', supplier: 'supplier or Trigger', const: 'enum constant', var: 'field' };
+
 function viewSetup() {
   const used = (id) => cfg.bindings.filter((b) => b.cmd === id).length;
-  const inp = (tbl, row, k, ph = '', cls = '') => `<input id="${tbl}-${esc(row.id)}-${k}" class="${cls}" data-tbl="${tbl}" data-id="${esc(row.id)}" data-k="${k}" value="${esc(row[k])}" placeholder="${esc(ph)}" aria-label="${k}">`;
-  const del = (tbl, id) => `<button class="icon" data-act="delRow" data-tbl="${tbl}" data-id="${esc(id)}" aria-label="Delete" title="Delete">×</button>`;
+  const inp = (tbl, row, k, ph = '', cls = '') => `<input id="${tbl}-${esc(row.id)}-${k}" class="${cls}" data-tbl="${tbl}" data-id="${esc(row.id)}" data-k="${k}" value="${esc(row[k])}" placeholder="${esc(ph)}" aria-label="${esc(row.name || '')} ${FIELD_NAMES[k] || k}">`;
+  const del = (tbl, id) => { const name = (tbl === 'modes' ? cfg.modes.list : cfg[tbl]).find((x) => x.id === id)?.name || ''; return `<button class="icon" data-act="delRow" data-tbl="${tbl}" data-id="${esc(id)}" aria-label="Delete ${esc(name)}" title="Delete ${esc(name)}">×</button>`; };
   return `<div class="robot">
-  <section class="part"><header class="sec"><h2>Commands</h2><button class="ghost" data-act="addRow" data-tbl="commands">+ Command</button></header>
+  <section class="part"><header class="sec"><h2>Commands</h2><button class="ghost" data-act="addRow" data-tbl="commands">Add command</button></header>
     <p class="muted">The Java expression is pasted as-is into the binding. Requirements drive the subsystem-conflict check.</p>
     <div class="scroll"><table class="stack cmds"><thead><tr><th>Name</th><th>Java expression</th><th>Requires</th><th>Used</th><th></th></tr></thead><tbody>
     ${cfg.commands.map((k) => `<tr><td>${inp('commands', k, 'name')}</td><td>${inp('commands', k, 'expr', 'new ScoreAmp(arm, shooter)', 'mono')}</td><td class="reqs">${reqBoxes(k)}</td><td class="num">${used(k.id) || '<span class="muted">0</span>'}</td><td>${del('commands', k.id)}</td></tr>`).join('')}
     </tbody></table></div></section>
   <div class="robot-side">
-  <section class="part"><header class="sec"><h2>Other triggers</h2><button class="ghost" data-act="addRow" data-tbl="conditions">+ Condition</button></header>
+  <section class="part"><header class="sec"><h2>Other triggers</h2><button class="ghost" data-act="addRow" data-tbl="conditions">Add trigger</button></header>
     <p class="muted">A BooleanSupplier becomes <code>Trigger name = new Trigger(supplier);</code>. A Trigger your subsystem exposes is used as it is: <code>Trigger name = intake.hasNote();</code></p>
     <table class="stack"><thead><tr><th>Name</th><th>Kind</th><th>Supplier or Trigger</th><th></th></tr></thead><tbody>
-    ${cfg.conditions.map((q) => `<tr><td>${inp('conditions', q, 'name')}</td><td><select id="conditions-${esc(q.id)}-kind" data-tbl="conditions" data-id="${esc(q.id)}" data-k="kind" aria-label="kind"><option value="supplier"${q.kind !== 'trigger' ? ' selected' : ''}>BooleanSupplier</option><option value="trigger"${q.kind === 'trigger' ? ' selected' : ''}>Trigger</option></select></td><td>${inp('conditions', q, 'supplier', q.kind === 'trigger' ? 'intake.hasNote()' : 'intake::hasNote', 'mono')}</td><td>${del('conditions', q.id)}</td></tr>`).join('')}
+    ${cfg.conditions.map((q) => `<tr><td>${inp('conditions', q, 'name')}</td><td><select id="conditions-${esc(q.id)}-kind" data-tbl="conditions" data-id="${esc(q.id)}" data-k="kind" aria-label="${esc(q.name)} kind"><option value="supplier"${q.kind !== 'trigger' ? ' selected' : ''}>BooleanSupplier</option><option value="trigger"${q.kind === 'trigger' ? ' selected' : ''}>Trigger</option></select></td><td>${inp('conditions', q, 'supplier', q.kind === 'trigger' ? 'intake.hasNote()' : 'intake::hasNote', 'mono')}</td><td>${del('conditions', q.id)}</td></tr>`).join('')}
     </tbody></table></section>
-  <section class="part"><header class="sec"><h2>Modes</h2><button class="ghost" data-act="addRow" data-tbl="modes">+ Mode</button></header>
+  <section class="part"><header class="sec"><h2>Modes</h2><button class="ghost" data-act="addRow" data-tbl="modes">Add mode</button></header>
     <p class="muted">Generated as an enum field; bind a command such as <code>Commands.runOnce(() -&gt; ${esc(cfg.modes.field)} = ${esc(cfg.modes.enumName)}.SCORING)</code> to switch.</p>
     <div class="row"><label>Enum<input id="modes-enum" data-modes="enumName" value="${esc(cfg.modes.enumName)}"></label><label>Field<input id="modes-field" data-modes="field" value="${esc(cfg.modes.field)}"></label></div>
     <table class="stack"><thead><tr><th>Name</th><th>Enum constant</th><th></th></tr></thead><tbody>
     ${cfg.modes.list.map((m) => `<tr><td>${inp('modes', m, 'name')}</td><td>${inp('modes', m, 'const', 'SCORING', 'mono')}</td><td>${del('modes', m.id)}</td></tr>`).join('')}
     </tbody></table></section>
-  <section class="part"><header class="sec"><h2>Subsystems</h2><button class="ghost" data-act="addRow" data-tbl="subsystems">+ Subsystem</button></header>
+  <section class="part"><header class="sec"><h2>Subsystems</h2><button class="ghost" data-act="addRow" data-tbl="subsystems">Add subsystem</button></header>
     <table class="stack"><thead><tr><th>Name</th><th>Field</th><th></th></tr></thead><tbody>
     ${cfg.subsystems.map((s) => `<tr><td>${inp('subsystems', s, 'name')}</td><td>${inp('subsystems', s, 'var', 'intake', 'mono')}</td><td>${del('subsystems', s.id)}</td></tr>`).join('')}
     </tbody></table></section>
   <section class="part"><header class="sec"><h2>Controllers</h2></header>
     <table class="stack"><thead><tr><th>Name</th><th>Field</th><th>Port</th><th>Type</th></tr></thead><tbody>
-    ${cfg.controllers.map((c) => `<tr><td>${inp('controllers', c, 'name')}</td><td>${inp('controllers', c, 'var', '', 'mono')}</td><td><input id="controllers-${esc(c.id)}-port" type="number" min="0" max="5" data-tbl="controllers" data-id="${esc(c.id)}" data-k="port" value="${c.port}" aria-label="port"></td>
-      <td><select id="controllers-${esc(c.id)}-type" data-tbl="controllers" data-id="${esc(c.id)}" data-k="type" aria-label="type">${Object.entries(CONTROLLER_TYPES).map(([k, t]) => `<option value="${k}"${k === c.type ? ' selected' : ''}>${t.name}</option>`).join('')}</select></td></tr>`).join('')}
+    ${cfg.controllers.map((c) => `<tr><td>${inp('controllers', c, 'name')}</td><td>${inp('controllers', c, 'var', '', 'mono')}</td><td><input id="controllers-${esc(c.id)}-port" type="number" min="0" max="5" data-tbl="controllers" data-id="${esc(c.id)}" data-k="port" value="${c.port}" aria-label="${esc(c.name)} port"></td>
+      <td><select id="controllers-${esc(c.id)}-type" data-tbl="controllers" data-id="${esc(c.id)}" data-k="type" aria-label="${esc(c.name)} controller type">${Object.entries(CONTROLLER_TYPES).map(([k, t]) => `<option value="${k}"${k === c.type ? ' selected' : ''}>${t.name}</option>`).join('')}</select></td></tr>`).join('')}
     </tbody></table></section>
   </div></div>`;
 }
@@ -266,7 +291,7 @@ function viewSetup() {
 
 function viewCode() {
   return `<p class="muted">Imports and fields go at the top of the class; <code>configureBindings()</code> replaces yours. Java for WPILib command-based (<code>edu.wpi.first.wpilibj2.command</code>).</p>
-    <pre class="code"><code id="java">${esc(generateJava(cfg))}</code></pre>`;
+    <pre class="code" tabindex="0" aria-label="Generated code"><code id="java">${esc(generateJava(cfg))}</code></pre>`;
 }
 
 function viewCheat() {
@@ -308,8 +333,8 @@ function viewShare() {
     <p class="muted">Paste your file, or the part of it you want to edit. Linkage reads controller fields, <code>new Trigger(...)</code> conditions, mode triggers and every binding chain in <code>configureBindings()</code>, and lists anything it couldn't read. Importing replaces the current configuration.</p>
     <textarea id="javaText" class="mono" rows="12" placeholder="public class RobotContainer { ... }">${esc(ui.importText)}</textarea>
     <div class="btns"><button class="primary" data-act="import">Import bindings</button><label class="ghost file">Open .java file<input type="file" id="javaFile" accept=".java,text/x-java,text/plain"></label></div>
-    ${r ? `<div class="import-result"><p><b>${r.recognized}</b> statements recognized, <b>${r.bindings}</b> bindings imported${r.problems.length ? `, <b>${r.problems.length}</b> left out:` : '.'}</p>
-      ${r.problems.length ? `<ul class="checks">${r.problems.map((p) => `<li class="warn"><p>${esc(p.text)}</p>${p.code ? `<code>${esc(p.code)}</code>` : ''}</li>`).join('')}</ul>` : ''}</div>` : ''}
+    ${r ? `<div class="import-result"><p><b>${r.recognized}</b> statements recognized, <b>${r.bindings}</b> bindings imported${r.problems.length ? `. <b>${r.problems.length}</b> kept exactly as written, because Linkage can't edit them:` : '.'}</p>
+      ${r.problems.length ? `<ul class="checks">${r.problems.map((p) => `<li class="info"><p>${esc(p.text)}</p>${p.code ? `<code>${esc(p.code)}</code>` : ''}</li>`).join('')}</ul>` : ''}</div>` : ''}
   </section></div>`;
 }
 
@@ -415,6 +440,20 @@ const actions = {
     render();
   },
   goto: (d) => actions.sel(d),
+  fix: (d) => {
+    const b = cfg.bindings.find((x) => x.id === d.b);
+    if (!b) return;
+    ui.sel = { ctrl: b.ctrl, input: b.input };
+    if (b.ctrl !== 'state') ui.ctrl = b.ctrl;
+    ui.open = new Set((d.bs || b.id).split(',').filter(Boolean));
+    ui.newCmd = d.field === 'expr' ? b.id : null;
+    render();
+    const [field, i] = (d.field || '').split(':');
+    const id = { cmd: `cmd-${b.id}`, mode: `mode-${b.id}`, expr: `nc-expr-${b.id}`, ref: `ref-${b.id}-${i}` }[field] || `bh-${b.id}`;
+    const el = document.getElementById(id) || document.getElementById(`bh-${b.id}`);
+    el?.scrollIntoView({ block: 'center' });
+    el?.focus();
+  },
   ctrl: (d) => { ui.ctrl = d.ctrl; if (ui.sel.ctrl !== 'state') { ui.sel = { ctrl: d.ctrl, input: cfg.bindings.find((b) => b.ctrl === d.ctrl)?.input || 'south' }; ui.open = autoOpen(); } render(); },
   open: (d) => openPanel(d.panel),
   openShare: () => openPanel('share'),
