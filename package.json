@@ -2,7 +2,7 @@
   "name": "linkage",
   "version": "0.2.0",
   "private": true,
-  "description": "Manage every Trigger binding in a WPILib robot project: controller pictures, code generation, cross-file checks.",
+  "description": "Controller bindings for WPILib command-based robots: click a controller picture, see conflicts, copy configureBindings().",
   "type": "module",
   "scripts": {
     "start": "node scripts/ensure-electron.mjs && electron .",
@@ -10,10 +10,12 @@
     "uitest": "node scripts/uitest.mjs",
     "dist": "node scripts/ensure-electron.mjs && electron-builder",
     "serve": "python3 -m http.server 8000",
-    "postinstall": "node scripts/ensure-electron.mjs"
+    "postinstall": "node scripts/ensure-electron.mjs",
+    "uilint": "node scripts/uilint.mjs"
   },
   "license": "MIT",
   "devDependencies": {
+    "axe-core": "^4.10.3",
     "electron": "^45.3.2",
     "electron-builder": "^26.18.0",
     "playwright": "^1.63.0"

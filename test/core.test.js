@@ -4,7 +4,10 @@ import { exampleConfig, blankConfig, normalizeConfig, inputMethod, uid } from '.
 import { generateJava, context, bindingStatement } from '../src/core/codegen.js';
 import { check } from '../src/core/checks.js';
 import { cheatSheet, cheatMarkdown, cheatHtml } from '../src/core/cheatsheet.js';
-import { importJava, parseChain, mapInput, commandName } from '../src/core/importer.js';
+import { importJava, parseChain, mapInput, commandName, statements, stripComments } from '../src/core/importer.js';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Every method the generator may call on a Trigger or a Command*Controller. If a test sees a
 // call outside this list, the generator invented an API.
@@ -74,9 +77,18 @@ test('checks find double bindings, subsystem fights and unused commands', () => 
   cfg.bindings.push(binding({ type: 'onTrue' }), binding({ type: 'whileTrue', cmd: 'k2' }));
   cfg.bindings.push(binding({ ctrl: 'operator', input: 'rb', type: 'whileTrue' }));
   const w = check(cfg);
-  assert.ok(w.some((x) => /bound twice/.test(x.text)));
+  assert.ok(w.some((x) => /bound twice/.test(x.text) && x.kind === "conflict"));
   assert.ok(w.some((x) => /both require Thing/.test(x.text)));
-  assert.ok(w.some((x) => /"Unused" is not bound/.test(x.text)));
+  assert.ok(w.some((x) => /"Unused" is not bound/.test(x.text) && x.kind === "note"));
+});
+
+test('an unfinished binding is reported as unfinished, not as a conflict, with a fix to pick a command', () => {
+  const cfg = withCmd(blankConfig());
+  cfg.bindings.push(binding({ cmd: '' }));
+  const w = check(cfg).filter((x) => x.bindings.length);
+  assert.equal(w.length, 1);
+  assert.equal(w[0].kind, 'unfinished');
+  assert.equal(w[0].fix.field, 'cmd');
 });
 
 test('checks accept bindings split by mode, by negated condition, or across the D-pad', () => {
@@ -182,4 +194,35 @@ test('normalizeConfig survives junk and keeps good data', () => {
   assert.equal(bad.bindings[0].type, 'onTrue');
   assert.deepEqual(bad.bindings[0].conds, []);
   assert.equal(bad.bindings[0].debounce, null);
+});
+
+// ---------- pasted RobotContainer ----------
+
+const fixture = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures/RobotContainer.java'), 'utf8').replace(/\r\n/g, '\n');
+
+test('import keeps statements it cannot read, and the copied code keeps them', () => {
+  const r = importJava(fixture);
+  assert.equal(r.config.keep.length, 2);
+  assert.match(r.config.keep[0], /setDefaultCommand/);
+  assert.match(r.config.keep[1], /^if \(Robot\.isSimulation\(\)\) \{/);
+  const java = generateJava(r.config);
+  assert.match(java, /Trigger hasNote = intake\.hasNote\(\);/);
+  assert.match(java, /drivetrain\.setDefaultCommand/);
+  assert.match(java, /\n {2}if \(Robot\.isSimulation\(\)\) \{\n {4}operator\.back\(\)/);
+  // pasting the copied code back gives the same code
+  assert.equal(generateJava(importJava(java).config), java);
+});
+
+test('statements keep offsets so lines are right', () => {
+  const src = 'a();\n// b();\nc(() -> { d(); });\nif (x) {\n  e();\n}\nf();';
+  const s = stripComments(src);
+  assert.equal(s.length, src.length);
+  assert.deepEqual(statements(s).map((x) => x.text), ['a()', 'c(() -> { d(); })', 'if (x) {\n  e();\n}', 'f()']);
+  assert.deepEqual(statements(s, 0, s.length, true).map((x) => x.text), ['a()', 'c(() -> { d(); })', 'if (x)', 'e()', 'f()']);
+});
+
+test('Trigger-valued conditions round trip as Trigger variables', () => {
+  const java = generateJava(exampleConfig());
+  assert.match(java, /Trigger shooterReady = shooter\.atSpeed\(\);/);
+  assert.equal(generateJava(importJava(java).config), java);
 });

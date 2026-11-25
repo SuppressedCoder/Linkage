@@ -1,7 +1,4 @@
-@font-face { font-family: Barlow; font-style: normal; font-weight: 400; font-display: swap; src: url(barlow-400.woff2) format('woff2'); }
-@font-face { font-family: Barlow; font-style: normal; font-weight: 500; font-display: swap; src: url(barlow-500.woff2) format('woff2'); }
-@font-face { font-family: Barlow; font-style: normal; font-weight: 600; font-display: swap; src: url(barlow-600.woff2) format('woff2'); }
-@font-face { font-family: Barlow; font-style: normal; font-weight: 700; font-display: swap; src: url(barlow-700.woff2) format('woff2'); }
-@font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 600; font-display: swap; src: url(barlow-condensed-600.woff2) format('woff2'); }
-@font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 700; font-display: swap; src: url(barlow-condensed-700.woff2) format('woff2'); }
-@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400 500; font-display: swap; src: url(jetbrains-mono.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400 600; font-display: swap; src: url(plex-sans.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url(plex-mono-400.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url(plex-mono-500.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url(plex-mono-600.woff2) format('woff2'); }

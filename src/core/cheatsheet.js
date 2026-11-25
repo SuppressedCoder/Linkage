@@ -29,7 +29,7 @@ export function cheatSheet(cfg) {
   const sheets = [];
   const entry = (b, ctrlId) => ({
     verb: ctrlId ? bindingType(b.type).verb : STATE_VERB[b.type],
-    action: ix.cmd[b.cmd]?.name || '(no command)',
+    action: ix.cmd[b.cmd]?.name || 'No command yet',
     when: condText(ix, b, ctrlId),
     all: !b.mode,
   });
@@ -84,11 +84,14 @@ export function cheatHtml(cfg, robotName = 'Robot') {
   const sheets = cheatSheet(cfg).filter((s) => s.rows.length);
   const cell = (c) => (c.length ? c.map((e) => `<div><b>${esc(e.verb)}</b> ${esc(e.action)}${e.when ? ` <i>${esc(e.when)}</i>` : ''}</div>`).join('') : '<span class="none">-</span>');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(robotName)} controls</title>
-<style>body{font:13px/1.4 system-ui,sans-serif;margin:24px;color:#111}h1{font-size:22px;margin:0 0 12px}h2{font-size:16px;margin:18px 0 6px}
-table{border-collapse:collapse;width:100%;page-break-inside:avoid}th,td{border:1px solid #999;padding:5px 7px;text-align:left;vertical-align:top}
-th{background:#eee}td:first-child{font-weight:700;white-space:nowrap;width:9em}i{color:#555}.none{color:#aaa}
+<style>body{font:14px/1.45 'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;margin:24px;color:#1b1f24}
+h1{font-size:22px;margin:0 0 12px}h2{font-size:16px;margin:20px 0 6px}
+table{border-collapse:collapse;width:100%;page-break-inside:avoid}th,td{border:1px solid #c9ced6;padding:5px 8px;text-align:left;vertical-align:top}
+th{font-weight:500;color:#5f6873;background:#f5f6f8}td:first-child{font:600 12.5px ui-monospace,monospace;white-space:nowrap;width:9em}i{color:#5f6873;font-style:normal}.none{color:#a9b1bb}
+.tb{display:flex;gap:4px 28px;margin-top:20px;padding-top:8px;border-top:1px solid #c9ced6;font-size:12px;color:#5f6873;page-break-inside:avoid}.tb b{font-weight:500;color:#1b1f24;margin-left:6px}
 @page{margin:12mm}</style></head><body><h1>${esc(robotName)} controls</h1>
 ${sheets.map((s) => `<h2>${esc(s.title)}</h2><table><tr><th>Input</th>${s.modes.map((m) => `<th>${esc(m)}</th>`).join('')}</tr>
 ${s.rows.map((r) => `<tr><td>${esc(r.label)}</td>${r.cells.map((c) => `<td>${cell(c)}</td>`).join('')}</tr>`).join('\n')}</table>`).join('\n')}
+<div class="tb"><div>Robot<b>${esc(robotName)}</b></div><div>Sheet<b>Driver station controls</b></div><div>Made with<b>Linkage</b></div></div>
 </body></html>`;
 }
